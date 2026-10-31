@@ -16,6 +16,7 @@ struct ItemDetailView: View {
     @State private var isAllDay: Bool
     @State private var hasDueDate: Bool
     @State private var includeTime: Bool
+    @State private var sourceID: String
     @State private var saveError: String?
     @State private var confirmingDelete = false
 
@@ -30,9 +31,14 @@ struct ItemDetailView: View {
         _isAllDay = State(initialValue: item.isAllDay)
         _hasDueDate = State(initialValue: item.startDate != nil)
         _includeTime = State(initialValue: item.hasDueTime)
+        _sourceID = State(initialValue: item.sourceID)
     }
 
     private var isEvent: Bool { item.kind == .event }
+    private var sourceOptions: [(id: String, title: String)] {
+        (isEvent ? eventKit.writableEventCalendars() : eventKit.writableReminderLists())
+            .map { (id: $0.calendarIdentifier, title: $0.title) }
+    }
     private var trimmedTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
@@ -45,10 +51,18 @@ struct ItemDetailView: View {
                 }
 
                 Section {
-                    LabeledContent(isEvent ? "Calendar" : "List") {
-                        HStack(spacing: 6) {
-                            Circle().fill(item.sourceColor).frame(width: 10, height: 10)
-                            Text(item.sourceName)
+                    if item.isReadOnly {
+                        LabeledContent(isEvent ? "Calendar" : "List") {
+                            HStack(spacing: 6) {
+                                Circle().fill(item.sourceColor).frame(width: 10, height: 10)
+                                Text(item.sourceName)
+                            }
+                        }
+                    } else {
+                        Picker(isEvent ? "Calendar" : "List", selection: $sourceID) {
+                            ForEach(sourceOptions, id: \.id) { option in
+                                Text(option.title).tag(option.id)
+                            }
                         }
                     }
                 } footer: {
@@ -173,13 +187,22 @@ struct ItemDetailView: View {
             let calendar = Calendar.current
             let eventStart = isAllDay ? calendar.startOfDay(for: start) : start
             let eventEnd = isAllDay ? calendar.startOfDay(for: end) : end
-            saved = eventKit.updateEvent(item, title: trimmedTitle, start: eventStart, end: eventEnd, isAllDay: isAllDay, notes: notesValue)
+            saved = eventKit.updateEvent(
+                item,
+                title: trimmedTitle,
+                start: eventStart,
+                end: eventEnd,
+                isAllDay: isAllDay,
+                calendarID: sourceID,
+                notes: notesValue
+            )
         } else {
             saved = eventKit.updateReminder(
                 item,
                 title: trimmedTitle,
                 dueDate: hasDueDate ? start : nil,
                 includeTime: includeTime,
+                listID: sourceID,
                 notes: notesValue
             )
         }

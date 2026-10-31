@@ -18,6 +18,8 @@ struct TimelineItem: Identifiable, Hashable {
     let isAllDay: Bool
     /// False for reminders whose due date has no time of day. Always true for events.
     let hasDueTime: Bool
+    /// EKCalendar.calendarIdentifier of the calendar or list this item lives in.
+    let sourceID: String
     let sourceName: String
     let sourceColor: Color
     let isCompleted: Bool
@@ -42,5 +44,15 @@ struct TimelineItem: Identifiable, Hashable {
     var timeLabel: String? {
         guard isTimed, let startDate else { return nil }
         return startDate.formatted(date: .omitted, time: .shortened)
+    }
+
+    /// "Today", "Tomorrow", "Yesterday", or a short date. Nil without a date.
+    var dayLabel: String? {
+        guard let startDate else { return nil }
+        let calendar = Calendar.current
+        if calendar.isDateInToday(startDate) { return "Today" }
+        if calendar.isDateInTomorrow(startDate) { return "Tomorrow" }
+        if calendar.isDateInYesterday(startDate) { return "Yesterday" }
+        return startDate.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
     }
 }

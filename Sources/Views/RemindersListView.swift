@@ -6,18 +6,15 @@ struct RemindersListView: View {
     @Environment(EventKitService.self) private var eventKit
     @State private var grouped: [(list: String, items: [TimelineItem])] = []
     @State private var searchText = ""
+    @State private var hasLoaded = false
 
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(filtered, id: \.list) { group in
-                    Section("\(group.list) (\(group.items.count))") {
-                        ForEach(group.items) { item in
-                            TimelineRow(item: item) {
-                                Task { await load() }
-                            }
-                        }
-                    }
+            Group {
+                if !eventKit.accessGranted {
+                    AccessPromptView { Task { _ = await eventKit.requestAccess() } }
+                } else {
+                    reminderList
                 }
             }
             .navigationTitle("Reminders")
@@ -26,6 +23,37 @@ struct RemindersListView: View {
             .refreshable { await load() }
             .onChange(of: eventKit.changeCount) {
                 Task { await load() }
+            }
+            .onChange(of: eventKit.accessGranted) {
+                Task { await load() }
+            }
+        }
+    }
+
+    private var reminderList: some View {
+        List {
+            ForEach(filtered, id: \.list) { group in
+                Section("\(group.list) (\(group.items.count))") {
+                    ForEach(group.items) { item in
+                        TimelineRow(item: item, showsDay: true) {
+                            Task { await load() }
+                        }
+                    }
+                }
+            }
+        }
+        .contentMargins(.bottom, ComposerButtonClearance.height, for: .scrollContent)
+        .overlay {
+            if !hasLoaded {
+                ProgressView()
+            } else if grouped.isEmpty {
+                ContentUnavailableView(
+                    "No open reminders",
+                    systemImage: "checklist",
+                    description: Text("Tap + to add one.")
+                )
+            } else if filtered.isEmpty {
+                ContentUnavailableView.search(text: searchText)
             }
         }
     }
@@ -42,6 +70,8 @@ struct RemindersListView: View {
     }
 
     private func load() async {
+        guard eventKit.accessGranted else { return }
+        defer { hasLoaded = true }
         // All incomplete reminders, then keep dateless ones plus anything due
         // within the next 30 days. Grouped by list for the tab layout.
         let all = await eventKit.fetchAllIncompleteReminders()

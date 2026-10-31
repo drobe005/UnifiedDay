@@ -1,20 +1,29 @@
 import EventKit
 import SwiftUI
+import UserNotifications
 
 /// Single gateway to Apple Calendar and Reminders. EventKit is the source of truth.
 /// No local persistence in v0.1: every read and write goes through EKEventStore.
 @MainActor
 @Observable
 final class EventKitService {
+    /// UserDefaults keys for Settings. Views bind to these with @AppStorage.
+    static let badgeEnabledKey = "badgeEnabled"
+    static let defaultCalendarKey = "defaultCalendarID"
+    static let defaultListKey = "defaultReminderListID"
+
     private let store = EKEventStore()
 
     var accessGranted = false
+    /// True when access was refused or limited, so only iOS Settings can fix it.
+    var accessNeedsSettings = false
     var lastError: String?
     /// Bumps whenever Calendar or Reminders data changes, inside or outside the app.
     /// Views reload when it changes so edits made in Apple's apps show up here.
     private(set) var changeCount = 0
 
     init() {
+        refreshAccessStatus()
         NotificationCenter.default.addObserver(
             forName: .EKEventStoreChanged,
             object: store,
@@ -32,11 +41,11 @@ final class EventKitService {
         do {
             let eventsOK = try await store.requestFullAccessToEvents()
             let remindersOK = try await store.requestFullAccessToReminders()
-            let granted = eventsOK && remindersOK
-            await MainActor.run { self.accessGranted = granted }
-            return granted
+            refreshAccessStatus()
+            return eventsOK && remindersOK
         } catch {
-            await MainActor.run { self.lastError = error.localizedDescription }
+            refreshAccessStatus()
+            lastError = error.localizedDescription
             return false
         }
     }
@@ -45,6 +54,13 @@ final class EventKitService {
         let events = EKEventStore.authorizationStatus(for: .event)
         let reminders = EKEventStore.authorizationStatus(for: .reminder)
         accessGranted = (events == .fullAccess && reminders == .fullAccess)
+        accessNeedsSettings = !accessGranted && events != .notDetermined && reminders != .notDetermined
+    }
+
+    /// Re-checks access and asks views to reload. Call when the app returns to the foreground.
+    func refreshOnForeground() {
+        refreshAccessStatus()
+        changeCount += 1
     }
 
     // MARK: - Reads
@@ -68,13 +84,15 @@ final class EventKitService {
         let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
         return store.events(matching: predicate).map { event in
             TimelineItem(
-                id: "event-\(event.eventIdentifier ?? UUID().uuidString)",
+                // Occurrences of a repeating event share an identifier, so add the date.
+                id: "event-\(event.eventIdentifier ?? UUID().uuidString)-\(event.occurrenceDate.timeIntervalSince1970)",
                 kind: .event,
                 title: event.title ?? "(No title)",
                 startDate: event.startDate,
                 endDate: event.endDate,
                 isAllDay: event.isAllDay,
                 hasDueTime: true,
+                sourceID: event.calendar.calendarIdentifier,
                 sourceName: event.calendar.title,
                 sourceColor: Color(event.calendar.cgColor),
                 isCompleted: false,
@@ -135,6 +153,7 @@ final class EventKitService {
             endDate: nil,
             isAllDay: false,
             hasDueTime: due?.hour != nil,
+            sourceID: reminder.calendar.calendarIdentifier,
             sourceName: reminder.calendar.title,
             sourceColor: Color(reminder.calendar.cgColor),
             isCompleted: reminder.isCompleted,
@@ -145,14 +164,93 @@ final class EventKitService {
         )
     }
 
-    /// All reminder lists, for the Reminders tab and the composer picker.
+    /// Searches titles and notes across events in the next `days` days and reminders
+    /// that are overdue, dateless, or due in that window. Chronological, dateless last.
+    func search(_ query: String, days: Int = 30) async -> [TimelineItem] {
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: .now)
+        guard let end = calendar.date(byAdding: .day, value: days, to: start) else { return [] }
+
+        let reminders = await fetchAllIncompleteReminders().filter { item in
+            guard let due = item.startDate else { return true }
+            return due < end
+        }
+        return (fetchEvents(start: start, end: end) + reminders)
+            .filter {
+                $0.title.localizedCaseInsensitiveContains(query)
+                    || ($0.notes?.localizedCaseInsensitiveContains(query) ?? false)
+            }
+            .sorted {
+                switch ($0.startDate, $1.startDate) {
+                case let (a?, b?) where a != b: return a < b
+                case (.some, nil): return true
+                case (nil, .some): return false
+                default: return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+                }
+            }
+    }
+
+    /// All reminder lists, for the Reminders tab.
     func reminderLists() -> [EKCalendar] {
         store.calendars(for: .reminder)
     }
 
-    /// All event calendars, for the composer picker.
-    func eventCalendars() -> [EKCalendar] {
-        store.calendars(for: .event)
+    /// Reminder lists that accept changes, for pickers.
+    func writableReminderLists() -> [EKCalendar] {
+        reminderLists().filter(\.allowsContentModifications)
+    }
+
+    /// Event calendars that accept changes, for pickers.
+    func writableEventCalendars() -> [EKCalendar] {
+        store.calendars(for: .event).filter(\.allowsContentModifications)
+    }
+
+    /// The default chosen in Settings, or Apple's default when none is set or it is gone.
+    func preferredEventCalendar() -> EKCalendar? {
+        let saved = UserDefaults.standard.string(forKey: Self.defaultCalendarKey)
+        return writableEventCalendars().first { $0.calendarIdentifier == saved }
+            ?? store.defaultCalendarForNewEvents
+    }
+
+    /// The default chosen in Settings, or Apple's default when none is set or it is gone.
+    func preferredReminderList() -> EKCalendar? {
+        let saved = UserDefaults.standard.string(forKey: Self.defaultListKey)
+        return writableReminderLists().first { $0.calendarIdentifier == saved }
+            ?? store.defaultCalendarForNewReminders()
+    }
+
+    // MARK: - Badge
+
+    /// Asks iOS for badge permission. Returns false and sets `lastError` if refused.
+    func enableBadge() async -> Bool {
+        do {
+            let allowed = try await UNUserNotificationCenter.current().requestAuthorization(options: [.badge])
+            if !allowed {
+                lastError = "Allow badges for UnifiedDay in iOS Settings, under Notifications."
+            }
+            return allowed
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Sets the app icon badge to incomplete reminders due today plus overdue.
+    /// iOS only updates it while the app runs, so it can lag until the next open.
+    func refreshBadge() async {
+        var count = 0
+        if accessGranted, UserDefaults.standard.bool(forKey: Self.badgeEnabledKey) {
+            let calendar = Calendar.current
+            let startOfDay = calendar.startOfDay(for: .now)
+            if let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) {
+                count = await fetchRemindersDue(before: endOfDay).count
+            }
+        }
+        do {
+            try await UNUserNotificationCenter.current().setBadgeCount(count)
+        } catch {
+            lastError = error.localizedDescription
+        }
     }
 
     // MARK: - Writes
@@ -160,7 +258,10 @@ final class EventKitService {
     func setReminderCompleted(_ item: TimelineItem, completed: Bool) {
         guard item.kind == .reminder,
               let reminder = store.calendarItem(withIdentifier: item.storeIdentifier) as? EKReminder
-        else { return }
+        else {
+            lastError = "That reminder no longer exists. It may have been deleted in Reminders."
+            return
+        }
         reminder.isCompleted = completed
         do {
             try store.save(reminder, commit: true)
@@ -176,7 +277,7 @@ final class EventKitService {
         event.endDate = end
         event.isAllDay = isAllDay
         event.notes = notes
-        event.calendar = calendar ?? store.defaultCalendarForNewEvents
+        event.calendar = calendar ?? preferredEventCalendar()
         do {
             try store.save(event, span: .thisEvent, commit: true)
         } catch {
@@ -184,16 +285,14 @@ final class EventKitService {
         }
     }
 
-    func createReminder(title: String, dueDate: Date?, list: EKCalendar?, notes: String?) {
+    func createReminder(title: String, dueDate: Date?, includeTime: Bool, list: EKCalendar?, notes: String?) {
         let reminder = EKReminder(eventStore: store)
         reminder.title = title
         reminder.notes = notes
         if let dueDate {
-            reminder.dueDateComponents = Calendar.current.dateComponents(
-                [.year, .month, .day, .hour, .minute], from: dueDate
-            )
+            reminder.dueDateComponents = dueComponents(for: dueDate, includeTime: includeTime)
         }
-        reminder.calendar = list ?? store.defaultCalendarForNewReminders()
+        reminder.calendar = list ?? preferredReminderList()
         do {
             try store.save(reminder, commit: true)
         } catch {
@@ -204,7 +303,15 @@ final class EventKitService {
     /// Saves edits to an event. Only this occurrence changes for repeating events.
     /// Returns false and sets `lastError` on failure.
     @discardableResult
-    func updateEvent(_ item: TimelineItem, title: String, start: Date, end: Date, isAllDay: Bool, notes: String?) -> Bool {
+    func updateEvent(
+        _ item: TimelineItem,
+        title: String,
+        start: Date,
+        end: Date,
+        isAllDay: Bool,
+        calendarID: String? = nil,
+        notes: String?
+    ) -> Bool {
         guard let event = event(for: item) else {
             lastError = "That event no longer exists. It may have been deleted in Calendar."
             return false
@@ -214,6 +321,9 @@ final class EventKitService {
         event.startDate = start
         event.endDate = max(end, start)
         event.notes = notes
+        if let calendarID, calendarID != item.sourceID, let calendar = store.calendar(withIdentifier: calendarID) {
+            event.calendar = calendar
+        }
         do {
             try store.save(event, span: .thisEvent, commit: true)
             lastError = nil
@@ -227,20 +337,23 @@ final class EventKitService {
     /// Saves edits to a reminder. A nil `dueDate` clears the due date.
     /// Returns false and sets `lastError` on failure.
     @discardableResult
-    func updateReminder(_ item: TimelineItem, title: String, dueDate: Date?, includeTime: Bool, notes: String?) -> Bool {
+    func updateReminder(
+        _ item: TimelineItem,
+        title: String,
+        dueDate: Date?,
+        includeTime: Bool,
+        listID: String? = nil,
+        notes: String?
+    ) -> Bool {
         guard let reminder = store.calendarItem(withIdentifier: item.storeIdentifier) as? EKReminder else {
             lastError = "That reminder no longer exists. It may have been deleted in Reminders."
             return false
         }
         reminder.title = title
         reminder.notes = notes
-        if let dueDate {
-            let fields: Set<Calendar.Component> = includeTime
-                ? [.year, .month, .day, .hour, .minute]
-                : [.year, .month, .day]
-            reminder.dueDateComponents = Calendar.current.dateComponents(fields, from: dueDate)
-        } else {
-            reminder.dueDateComponents = nil
+        reminder.dueDateComponents = dueDate.map { dueComponents(for: $0, includeTime: includeTime) }
+        if let listID, listID != item.sourceID, let list = store.calendar(withIdentifier: listID) {
+            reminder.calendar = list
         }
         do {
             try store.save(reminder, commit: true)
@@ -250,6 +363,13 @@ final class EventKitService {
             lastError = error.localizedDescription
             return false
         }
+    }
+
+    private func dueComponents(for date: Date, includeTime: Bool) -> DateComponents {
+        let fields: Set<Calendar.Component> = includeTime
+            ? [.year, .month, .day, .hour, .minute]
+            : [.year, .month, .day]
+        return Calendar.current.dateComponents(fields, from: date)
     }
 
     enum RescheduleTarget {
@@ -316,11 +436,16 @@ final class EventKitService {
         do {
             switch item.kind {
             case .event:
-                guard let event = event(for: item) else { return }
+                guard let event = event(for: item) else {
+                    lastError = "That event no longer exists. It may have been deleted in Calendar."
+                    return
+                }
                 try store.remove(event, span: .thisEvent, commit: true)
             case .reminder:
-                guard let reminder = store.calendarItem(withIdentifier: item.storeIdentifier) as? EKReminder
-                else { return }
+                guard let reminder = store.calendarItem(withIdentifier: item.storeIdentifier) as? EKReminder else {
+                    lastError = "That reminder no longer exists. It may have been deleted in Reminders."
+                    return
+                }
                 try store.remove(reminder, commit: true)
             }
         } catch {

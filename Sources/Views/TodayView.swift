@@ -6,20 +6,39 @@ struct TodayView: View {
     @Environment(EventKitService.self) private var eventKit
     @State private var items: [TimelineItem] = []
     @State private var isLoading = false
+    @State private var hasLoaded = false
     @State private var showingOnboarding = false
+    @State private var searchText = ""
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var searchResults: [TimelineItem] = []
+    @State private var isSearching = false
+
+    private var trimmedSearch: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     var body: some View {
         NavigationStack {
             Group {
                 if !eventKit.accessGranted {
-                    accessPrompt
-                } else if items.isEmpty && !isLoading {
+                    AccessPromptView { showingOnboarding = true }
+                } else if !trimmedSearch.isEmpty {
+                    searchList
+                } else if !hasLoaded {
+                    ProgressView()
+                } else if items.isEmpty {
                     emptyState
                 } else {
                     timelineList
                 }
             }
-            .navigationTitle(Date.now.formatted(date: .abbreviated, time: .omitted))
+            .navigationTitle(Date.now.formatted(
+                .dateTime.weekday(typeSize.isAccessibilitySize ? .abbreviated : .wide).month(.abbreviated).day()
+            ))
+            .searchable(text: $searchText, prompt: "Search the next 30 days")
+            .task(id: trimmedSearch) {
+                await runSearch()
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -33,7 +52,7 @@ struct TodayView: View {
             .task {
                 if eventKit.accessGranted {
                     await load()
-                } else {
+                } else if !eventKit.accessNeedsSettings {
                     showingOnboarding = true
                 }
             }
@@ -52,13 +71,21 @@ struct TodayView: View {
             }
             .onChange(of: eventKit.changeCount) {
                 guard eventKit.accessGranted else { return }
-                Task { await load() }
+                Task {
+                    await load()
+                    await runSearch()
+                }
             }
         }
     }
 
     private var timelineList: some View {
         List {
+            Text(summary)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .listRowBackground(Color.clear)
+
             ForEach(sections, id: \.title) { section in
                 Section(section.title) {
                     ForEach(section.items) { item in
@@ -69,9 +96,51 @@ struct TodayView: View {
                 }
             }
         }
+        .contentMargins(.bottom, ComposerButtonClearance.height, for: .scrollContent)
         .overlay {
             if isLoading { ProgressView().padding() }
         }
+    }
+
+    private var searchList: some View {
+        List {
+            ForEach(searchResults) { item in
+                TimelineRow(item: item, showsDay: true) {
+                    Task { await load() }
+                }
+            }
+        }
+        .contentMargins(.bottom, ComposerButtonClearance.height, for: .scrollContent)
+        .overlay {
+            if searchResults.isEmpty && !isSearching {
+                ContentUnavailableView.search(text: trimmedSearch)
+            }
+        }
+    }
+
+    /// Debounced by the `.task(id:)` restart: a new keystroke cancels the sleep.
+    private func runSearch() async {
+        let query = trimmedSearch
+        guard !query.isEmpty else {
+            searchResults = []
+            isSearching = false
+            return
+        }
+        isSearching = true
+        try? await Task.sleep(for: .milliseconds(200))
+        guard !Task.isCancelled else { return }
+        let results = await eventKit.search(query)
+        guard !Task.isCancelled else { return }
+        searchResults = results
+        isSearching = false
+    }
+
+    private var summary: String {
+        let events = items.filter { $0.kind == .event }.count
+        let reminders = items.count - events
+        let eventText = "\(events) \(events == 1 ? "event" : "events")"
+        let reminderText = "\(reminders) \(reminders == 1 ? "reminder" : "reminders") left"
+        return "\(eventText), \(reminderText)"
     }
 
     private var sections: [(title: String, items: [TimelineItem])] {
@@ -91,15 +160,7 @@ struct TodayView: View {
         ContentUnavailableView(
             "Nothing on the books",
             systemImage: "checkmark.circle",
-            description: Text("No events or reminders due today. Enjoy the clear runway, or add something.")
-        )
-    }
-
-    private var accessPrompt: some View {
-        ContentUnavailableView(
-            "Calendar access needed",
-            systemImage: "calendar.badge.exclamationmark",
-            description: Text("UnifiedDay reads your Apple Calendar and Reminders to build the timeline. Nothing leaves your device.")
+            description: Text("No events or reminders today. Tap + to add one.")
         )
     }
 
@@ -107,14 +168,61 @@ struct TodayView: View {
         isLoading = true
         defer { isLoading = false }
         items = await eventKit.fetchTimeline(for: Date.now)
+        hasLoaded = true
+        await eventKit.refreshBadge()
+    }
+}
+
+/// Extra scroll room so the floating + button never covers the last row.
+enum ComposerButtonClearance {
+    static let height: CGFloat = 88
+}
+
+/// Shown when Calendar or Reminders access is missing. Never a dead end: it either
+/// restarts onboarding or links to iOS Settings when only Settings can fix it.
+struct AccessPromptView: View {
+    @Environment(EventKitService.self) private var eventKit
+    let onContinue: () -> Void
+
+    var body: some View {
+        ContentUnavailableView {
+            Label("Calendar access needed", systemImage: "calendar.badge.exclamationmark")
+        } description: {
+            Text(eventKit.accessNeedsSettings
+                ? "Turn on full access for Calendars and Reminders in iOS Settings."
+                : "UnifiedDay needs Calendar and Reminders access to build your timeline.")
+        } actions: {
+            if eventKit.accessNeedsSettings {
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+            } else {
+                Button("Continue", action: onContinue)
+                    .buttonStyle(.borderedProminent)
+            }
+        }
     }
 }
 
 struct TimelineRow: View {
     @Environment(EventKitService.self) private var eventKit
     let item: TimelineItem
+    /// Shows the day next to the time, for lists that span more than today.
+    var showsDay = false
     let onChange: () -> Void
     @State private var showingDetail = false
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    private var trailingLabel: String? {
+        if showsDay || item.isOverdue, let day = item.dayLabel {
+            if item.isAllDay { return "\(day), all day" }
+            return [day, item.timeLabel].compactMap { $0 }.joined(separator: ", ")
+        }
+        return item.timeLabel ?? (item.isAllDay ? "All day" : nil)
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -128,32 +236,39 @@ struct TimelineRow: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(item.isReadOnly)
-                .accessibilityLabel(item.isCompleted ? "Mark not done" : "Mark done")
+                .accessibilityLabel(item.isCompleted ? "Mark \(item.title) not done" : "Mark \(item.title) done")
             } else {
                 Circle()
                     .fill(item.sourceColor)
                     .frame(width: 10, height: 10)
+                    .accessibilityHidden(true)
             }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title)
-                    .strikethrough(item.isCompleted)
-                    .foregroundStyle(item.isCompleted ? .secondary : .primary)
-                Text(item.sourceName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            // Large accessibility text needs the full width, so stack instead of side by side.
+            let stacked = typeSize.isAccessibilitySize
+            let layout = stacked
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2))
+                : AnyLayout(HStackLayout(spacing: 12))
+            layout {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title)
+                        .strikethrough(item.isCompleted)
+                        .foregroundStyle(item.isCompleted ? .secondary : .primary)
+                    Text(item.sourceName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
-            Spacer()
+                if !stacked {
+                    Spacer()
+                }
 
-            if let time = item.timeLabel {
-                Text(time)
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            } else if item.isAllDay {
-                Text("All day")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if let trailingLabel {
+                    Text(trailingLabel)
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(item.isOverdue ? Color.red : .secondary)
+                        .multilineTextAlignment(stacked ? .leading : .trailing)
+                }
             }
         }
         .contentShape(Rectangle())
@@ -232,9 +347,10 @@ struct OnboardingView: View {
                 Button {
                     Task {
                         isRequesting = true
-                        let granted = await eventKit.requestAccess()
+                        _ = await eventKit.requestAccess()
                         isRequesting = false
-                        if granted { dismiss() }
+                        // If refused, the prompt behind this sheet links to Settings.
+                        dismiss()
                     }
                 } label: {
                     Text(isRequesting ? "Requesting..." : "Continue")

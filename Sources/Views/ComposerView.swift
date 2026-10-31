@@ -15,6 +15,7 @@ struct ComposerView: View {
     @State private var notes = ""
     @State private var selectedCalendarID: String?
     @State private var selectedListID: String?
+    @FocusState private var titleFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -27,25 +28,24 @@ struct ComposerView: View {
 
                 Section {
                     TextField("Title", text: $title)
+                        .focused($titleFocused)
                 }
 
                 Section {
                     DatePicker("Date", selection: $date, displayedComponents: includeTime ? [.date, .hourAndMinute] : [.date])
-                    if kind == .reminder {
-                        Toggle("Include time", isOn: $includeTime)
-                    }
+                    Toggle("Include time", isOn: $includeTime)
                 }
 
                 Section {
                     if kind == .event {
                         Picker("Calendar", selection: $selectedCalendarID) {
-                            ForEach(eventKit.eventCalendars(), id: \.calendarIdentifier) { calendar in
+                            ForEach(eventKit.writableEventCalendars(), id: \.calendarIdentifier) { calendar in
                                 Text(calendar.title).tag(Optional(calendar.calendarIdentifier))
                             }
                         }
                     } else {
                         Picker("List", selection: $selectedListID) {
-                            ForEach(eventKit.reminderLists(), id: \.calendarIdentifier) { list in
+                            ForEach(eventKit.writableReminderLists(), id: \.calendarIdentifier) { list in
                                 Text(list.title).tag(Optional(list.calendarIdentifier))
                             }
                         }
@@ -58,6 +58,11 @@ struct ComposerView: View {
             }
             .navigationTitle(kind == .event ? "New Event" : "New Reminder")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                selectedCalendarID = eventKit.preferredEventCalendar()?.calendarIdentifier
+                selectedListID = eventKit.preferredReminderList()?.calendarIdentifier
+                titleFocused = true
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -73,7 +78,7 @@ struct ComposerView: View {
     private func save() {
         let trimmed = title.trimmingCharacters(in: .whitespaces)
         if kind == .event {
-            let calendar = eventKit.eventCalendars().first { $0.calendarIdentifier == selectedCalendarID }
+            let calendar = eventKit.writableEventCalendars().first { $0.calendarIdentifier == selectedCalendarID }
             let start = includeTime ? date : Calendar.current.startOfDay(for: date)
             let end = Calendar.current.date(byAdding: .hour, value: 1, to: start) ?? start
             eventKit.createEvent(
@@ -85,10 +90,11 @@ struct ComposerView: View {
                 notes: notes.isEmpty ? nil : notes
             )
         } else {
-            let list = eventKit.reminderLists().first { $0.calendarIdentifier == selectedListID }
+            let list = eventKit.writableReminderLists().first { $0.calendarIdentifier == selectedListID }
             eventKit.createReminder(
                 title: trimmed,
-                dueDate: includeTime ? date : Calendar.current.startOfDay(for: date),
+                dueDate: date,
+                includeTime: includeTime,
                 list: list,
                 notes: notes.isEmpty ? nil : notes
             )

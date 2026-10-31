@@ -32,7 +32,7 @@ or Reminders within 5 seconds, and vice versa.
 
 Acceptance: reschedule from the app, verify in Apple Reminders.
 
-## Phase 3 - Search and polish
+## Phase 3 - Search and polish (done 2026-10-31, verified on iPhone 16 Pro Max)
 
 - Search across events and reminders for the next 30 days (reminders search
   exists; extend to events).

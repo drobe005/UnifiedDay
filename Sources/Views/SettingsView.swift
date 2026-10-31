@@ -4,6 +4,9 @@ import SwiftUI
 /// (Google, Zoom, Notion, Drive in v0.2).
 struct SettingsView: View {
     @Environment(EventKitService.self) private var eventKit
+    @AppStorage(EventKitService.badgeEnabledKey) private var badgeEnabled = false
+    @AppStorage(EventKitService.defaultCalendarKey) private var defaultCalendarID = ""
+    @AppStorage(EventKitService.defaultListKey) private var defaultListID = ""
 
     var body: some View {
         NavigationStack {
@@ -20,6 +23,37 @@ struct SettingsView: View {
                             if let url = URL(string: UIApplication.openSettingsURLString) {
                                 UIApplication.shared.open(url)
                             }
+                        }
+                    }
+                }
+
+                if eventKit.accessGranted {
+                    Section("Defaults") {
+                        Picker("Calendar", selection: $defaultCalendarID) {
+                            Text("Apple default").tag("")
+                            ForEach(eventKit.writableEventCalendars(), id: \.calendarIdentifier) { calendar in
+                                Text(calendar.title).tag(calendar.calendarIdentifier)
+                            }
+                        }
+                        Picker("Reminders list", selection: $defaultListID) {
+                            Text("Apple default").tag("")
+                            ForEach(eventKit.writableReminderLists(), id: \.calendarIdentifier) { list in
+                                Text(list.title).tag(list.calendarIdentifier)
+                            }
+                        }
+                    }
+
+                    Section {
+                        Toggle("App icon badge", isOn: $badgeEnabled)
+                    } footer: {
+                        Text("Shows reminders due today plus overdue. Updates when you open the app.")
+                    }
+                    .onChange(of: badgeEnabled) { _, enabled in
+                        Task {
+                            if enabled, !(await eventKit.enableBadge()) {
+                                badgeEnabled = false
+                            }
+                            await eventKit.refreshBadge()
                         }
                     }
                 }
