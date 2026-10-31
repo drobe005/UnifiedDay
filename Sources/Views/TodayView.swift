@@ -8,10 +8,16 @@ struct TodayView: View {
     @State private var isLoading = false
     @State private var hasLoaded = false
     @State private var showingOnboarding = false
+    @State private var showingAttention = false
     @State private var searchText = ""
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var searchResults: [TimelineItem] = []
     @State private var isSearching = false
+
+    /// Matches the app icon badge: the timeline's reminders are all overdue or due today.
+    private var attentionCount: Int {
+        items.filter { $0.kind == .reminder }.count
+    }
 
     private var trimmedSearch: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -40,6 +46,16 @@ struct TodayView: View {
                 await runSearch()
             }
             .toolbar {
+                if eventKit.accessGranted {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            showingAttention = true
+                        } label: {
+                            AttentionBell(count: attentionCount)
+                        }
+                        .accessibilityLabel("Needs attention, \(attentionCount) \(attentionCount == 1 ? "item" : "items")")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         Task { await load() }
@@ -61,6 +77,10 @@ struct TodayView: View {
             }
             .sheet(isPresented: $showingOnboarding) {
                 OnboardingView()
+                    .environment(eventKit)
+            }
+            .sheet(isPresented: $showingAttention) {
+                NeedsAttentionView()
                     .environment(eventKit)
             }
             .onChange(of: eventKit.accessGranted) { _, granted in
@@ -170,6 +190,27 @@ struct TodayView: View {
         items = await eventKit.fetchTimeline(for: Date.now)
         hasLoaded = true
         await eventKit.refreshBadge()
+    }
+}
+
+/// Bell with a count, for the Today toolbar.
+struct AttentionBell: View {
+    let count: Int
+
+    var body: some View {
+        Image(systemName: "bell")
+            .overlay(alignment: .topTrailing) {
+                if count > 0 {
+                    Text(count > 99 ? "99+" : "\(count)")
+                        .font(.caption2.bold().monospacedDigit())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(.red, in: Capsule())
+                        .fixedSize()
+                        .offset(x: 9, y: -9)
+                }
+            }
     }
 }
 

@@ -219,7 +219,18 @@ final class EventKitService {
             ?? store.defaultCalendarForNewReminders()
     }
 
-    // MARK: - Badge
+    // MARK: - Needs attention and badge
+
+    /// Incomplete reminders that are overdue or due today, in timeline order.
+    /// This is the list behind the bell and the app icon badge.
+    func fetchNeedsAttention() async -> [TimelineItem] {
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: .now)
+        guard let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) else {
+            return []
+        }
+        return Self.sortItems(await fetchRemindersDue(before: endOfDay))
+    }
 
     /// Asks iOS for badge permission. Returns false and sets `lastError` if refused.
     func enableBadge() async -> Bool {
@@ -240,11 +251,7 @@ final class EventKitService {
     func refreshBadge() async {
         var count = 0
         if accessGranted, UserDefaults.standard.bool(forKey: Self.badgeEnabledKey) {
-            let calendar = Calendar.current
-            let startOfDay = calendar.startOfDay(for: .now)
-            if let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) {
-                count = await fetchRemindersDue(before: endOfDay).count
-            }
+            count = await fetchNeedsAttention().count
         }
         do {
             try await UNUserNotificationCenter.current().setBadgeCount(count)
