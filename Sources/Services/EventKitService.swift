@@ -65,8 +65,8 @@ final class EventKitService {
 
     // MARK: - Reads
 
-    /// Fetches everything for one day: timed events, all-day events, reminders
-    /// due that day, plus overdue reminders pinned by the sort rule.
+    /// Fetches everything for one day: timed events, all-day events, and reminders
+    /// due that day. Today also includes overdue reminders, pinned by the sort rule.
     func fetchTimeline(for date: Date) async -> [TimelineItem] {
         let calendar = Calendar.current
         let startOfDay = calendar.startOfDay(for: date)
@@ -76,8 +76,35 @@ final class EventKitService {
 
         var items: [TimelineItem] = []
         items += fetchEvents(start: startOfDay, end: endOfDay)
-        items += await fetchRemindersDue(before: endOfDay)
+        let reminders = await fetchRemindersDue(before: endOfDay)
+        items += calendar.isDateInToday(date)
+            ? reminders
+            : reminders.filter { ($0.startDate ?? .distantPast) >= startOfDay }
         return Self.sortItems(items)
+    }
+
+    /// The start of every day in the range that has an event or an open reminder.
+    /// Multi-day events mark each day they touch. Used for the calendar dots.
+    func daysWithItems(from start: Date, to end: Date) async -> Set<Date> {
+        let calendar = Calendar.current
+        var days = Set<Date>()
+        for event in fetchEvents(start: start, end: end) {
+            guard let eventStart = event.startDate else { continue }
+            // An event ending exactly at midnight does not touch the next day.
+            let last = max(eventStart, (event.endDate ?? eventStart).addingTimeInterval(-1))
+            var day = calendar.startOfDay(for: max(eventStart, start))
+            while day <= last, day < end {
+                days.insert(day)
+                guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
+                day = next
+            }
+        }
+        for reminder in await fetchRemindersDue(before: end) {
+            if let due = reminder.startDate, due >= start, due < end {
+                days.insert(calendar.startOfDay(for: due))
+            }
+        }
+        return days
     }
 
     private func fetchEvents(start: Date, end: Date) -> [TimelineItem] {

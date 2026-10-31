@@ -10,12 +10,16 @@ struct ComposerView: View {
 
     @State private var kind: DraftKind = .reminder
     @State private var title = ""
-    @State private var date = Date.now
+    @State private var date: Date
     @State private var includeTime = true
     @State private var notes = ""
     @State private var selectedCalendarID: String?
     @State private var selectedListID: String?
     @FocusState private var titleFocused: Bool
+
+    init(initialDate: Date = .now) {
+        _date = State(initialValue: initialDate)
+    }
 
     var body: some View {
         NavigationStack {
