@@ -7,6 +7,12 @@ struct SettingsView: View {
     @AppStorage(EventKitService.badgeEnabledKey) private var badgeEnabled = false
     @AppStorage(EventKitService.defaultCalendarKey) private var defaultCalendarID = ""
     @AppStorage(EventKitService.defaultListKey) private var defaultListID = ""
+    @AppStorage(EventKitService.alertsEnabledKey) private var alertsEnabled = false
+    @AppStorage(EventKitService.alertLeadMinutesKey) private var alertLeadMinutes = EventKitService.defaultAlertLeadMinutes
+
+    @State private var bannersOn: Bool?
+
+    private let alertLeadOptions = [0, 5, 10, 15, 30, 60]
 
     var body: some View {
         NavigationStack {
@@ -44,6 +50,44 @@ struct SettingsView: View {
                     }
 
                     Section {
+                        Toggle("Alerts", isOn: $alertsEnabled)
+                        if alertsEnabled {
+                            Picker("Event alert", selection: $alertLeadMinutes) {
+                                ForEach(alertLeadOptions, id: \.self) { minutes in
+                                    Text(alertLeadLabel(minutes)).tag(minutes)
+                                }
+                            }
+                        }
+                        // Stays visible with Alerts off, since iOS Settings may be the fix.
+                        if let bannersOn {
+                            LabeledContent("Banners", value: bannersOn ? "On" : "Off")
+                        }
+                        Button("Change in iOS Settings") {
+                            if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                    } footer: {
+                        Text("Covers timed events and reminders. Reminders with no time alert at 9 AM. Changes apply when you open the app.")
+                    }
+                    .onChange(of: alertsEnabled) { _, enabled in
+                        Task {
+                            if enabled, !(await eventKit.enableAlerts()) {
+                                alertsEnabled = false
+                            }
+                            await eventKit.refreshAlerts()
+                            bannersOn = await eventKit.bannersAllowed()
+                        }
+                    }
+                    // changeCount also bumps on return from iOS Settings.
+                    .task(id: eventKit.changeCount) {
+                        bannersOn = await eventKit.bannersAllowed()
+                    }
+                    .onChange(of: alertLeadMinutes) {
+                        Task { await eventKit.refreshAlerts() }
+                    }
+
+                    Section {
                         Toggle("App icon badge", isOn: $badgeEnabled)
                     } footer: {
                         Text("Shows reminders due today plus overdue. Updates when you open the app.")
@@ -74,6 +118,14 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+        }
+    }
+
+    private func alertLeadLabel(_ minutes: Int) -> String {
+        switch minutes {
+        case 0: "At start time"
+        case 60: "1 hour before"
+        default: "\(minutes) minutes before"
         }
     }
 

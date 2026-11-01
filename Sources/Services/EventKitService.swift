@@ -11,6 +11,17 @@ final class EventKitService {
     static let badgeEnabledKey = "badgeEnabled"
     static let defaultCalendarKey = "defaultCalendarID"
     static let defaultListKey = "defaultReminderListID"
+    static let alertsEnabledKey = "alertsEnabled"
+    static let alertLeadMinutesKey = "alertLeadMinutes"
+    static let defaultAlertLeadMinutes = 10
+
+    /// iOS keeps at most 64 pending alerts per app, so schedule only the soonest.
+    private static let maxPendingAlerts = 60
+    private static let alertWindowDays = 14
+    /// When reminders with a date but no time alert, as an hour of the day.
+    private static let dateOnlyAlertHour = 9
+    /// The notification center holds its delegate weakly, so keep it here.
+    private static let alertPresenter = AlertPresenter()
 
     private let store = EKEventStore()
 
@@ -24,6 +35,7 @@ final class EventKitService {
 
     init() {
         refreshAccessStatus()
+        UNUserNotificationCenter.current().delegate = Self.alertPresenter
         NotificationCenter.default.addObserver(
             forName: .EKEventStoreChanged,
             object: store,
@@ -260,9 +272,11 @@ final class EventKitService {
     }
 
     /// Asks iOS for badge permission. Returns false and sets `lastError` if refused.
+    /// Includes alerts and sound because iOS only asks once: a badge-only first
+    /// request left the Banners option out of iOS Settings.
     func enableBadge() async -> Bool {
         do {
-            let allowed = try await UNUserNotificationCenter.current().requestAuthorization(options: [.badge])
+            let allowed = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
             if !allowed {
                 lastError = "Allow badges for UnifiedDay in iOS Settings, under Notifications."
             }
@@ -285,6 +299,91 @@ final class EventKitService {
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    // MARK: - Alerts
+
+    /// Asks iOS for banners and sound. Checks the result directly, because iOS does
+    /// not ask again when badge permission was already answered.
+    /// Returns false and sets `lastError` if banners are off.
+    func enableAlerts() async -> Bool {
+        let center = UNUserNotificationCenter.current()
+        do {
+            _ = try await center.requestAuthorization(options: [.alert, .sound, .badge])
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+        guard await center.notificationSettings().alertSetting == .enabled else {
+            lastError = "Allow alerts for UnifiedDay in iOS Settings, under Notifications."
+            return false
+        }
+        return true
+    }
+
+    /// Whether iOS shows banners for this app. Only iOS Settings can change this.
+    func bannersAllowed() async -> Bool {
+        await UNUserNotificationCenter.current().notificationSettings().alertStyle != .none
+    }
+
+    /// Replaces all scheduled alerts with the soonest upcoming events and reminders.
+    /// iOS only lets this run while the app is open, so later changes wait for the next open.
+    func refreshAlerts() async {
+        let center = UNUserNotificationCenter.current()
+        guard accessGranted, UserDefaults.standard.bool(forKey: Self.alertsEnabledKey),
+              let end = Calendar.current.date(byAdding: .day, value: Self.alertWindowDays, to: .now)
+        else {
+            center.removeAllPendingNotificationRequests()
+            return
+        }
+
+        let now = Date.now
+        let items = await fetchRemindersDue(before: end) + fetchEvents(start: now, end: end)
+        guard !Task.isCancelled else { return }
+
+        let upcoming = items
+            .compactMap { item in alertDate(for: item).map { (item: item, date: $0) } }
+            .filter { $0.date > now }
+            .sorted { $0.date < $1.date }
+            .prefix(Self.maxPendingAlerts)
+
+        center.removeAllPendingNotificationRequests()
+        do {
+            for alert in upcoming {
+                try await center.add(alertRequest(for: alert.item, at: alert.date))
+            }
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    /// Timed events alert ahead of their start, by the lead time in Settings.
+    /// Reminders alert when due, or in the morning without a time. All-day events do not alert.
+    private func alertDate(for item: TimelineItem) -> Date? {
+        guard let start = item.startDate, !item.isAllDay else { return nil }
+        switch item.kind {
+        case .event:
+            let saved = UserDefaults.standard.object(forKey: Self.alertLeadMinutesKey) as? Int
+            let minutes = saved ?? Self.defaultAlertLeadMinutes
+            return start.addingTimeInterval(TimeInterval(-minutes * 60))
+        case .reminder:
+            guard !item.hasDueTime else { return start }
+            return Calendar.current.date(bySettingHour: Self.dateOnlyAlertHour, minute: 0, second: 0, of: start)
+        }
+    }
+
+    private func alertRequest(for item: TimelineItem, at date: Date) -> UNNotificationRequest {
+        let content = UNMutableNotificationContent()
+        content.title = item.title
+        content.sound = .default
+        if let time = item.timeLabel {
+            content.body = item.kind == .event ? "Starts at \(time)" : "Due at \(time)"
+        } else {
+            content.body = "Due today"
+        }
+        let fields = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: fields, repeats: false)
+        return UNNotificationRequest(identifier: item.id, content: content, trigger: trigger)
     }
 
     // MARK: - Writes
@@ -507,5 +606,15 @@ final class EventKitService {
             default: return $0.title.localizedStandardCompare($1.title) == .orderedAscending
             }
         }
+    }
+}
+
+/// Shows alerts as banners while the app is open. iOS hides them otherwise.
+final class AlertPresenter: NSObject, UNUserNotificationCenterDelegate, Sendable {
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .list, .sound]
     }
 }

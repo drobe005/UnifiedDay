@@ -72,6 +72,9 @@ struct RootView: View {
             ComposerView(initialDate: request.date)
                 .environment(eventKit)
         }
+        .task(id: eventKit.changeCount) {
+            await eventKit.refreshAlerts()
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 eventKit.refreshOnForeground()
