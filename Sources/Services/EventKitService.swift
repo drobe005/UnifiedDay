@@ -237,6 +237,15 @@ final class EventKitService {
     /// Searches titles and notes across events in the next `days` days and reminders
     /// that are overdue, dateless, or due in that window. Chronological, dateless last.
     func search(_ query: String, days: Int = 30) async -> [TimelineItem] {
+        await upcomingItems(days: days).filter {
+            $0.title.localizedCaseInsensitiveContains(query)
+                || ($0.notes?.localizedCaseInsensitiveContains(query) ?? false)
+        }
+    }
+
+    /// Events in the next `days` days plus reminders that are overdue, dateless, or
+    /// due in that window. Chronological, dateless last.
+    func upcomingItems(days: Int = 30) async -> [TimelineItem] {
         let calendar = Calendar.current
         let start = calendar.startOfDay(for: .now)
         guard let end = calendar.date(byAdding: .day, value: days, to: start) else { return [] }
@@ -246,10 +255,6 @@ final class EventKitService {
             return due < end
         }
         return (fetchEvents(start: start, end: end) + reminders)
-            .filter {
-                $0.title.localizedCaseInsensitiveContains(query)
-                    || ($0.notes?.localizedCaseInsensitiveContains(query) ?? false)
-            }
             .sorted {
                 switch ($0.startDate, $1.startDate) {
                 case let (a?, b?) where a != b: return a < b

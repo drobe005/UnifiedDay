@@ -34,6 +34,15 @@ final class Note {
         (links ?? []).sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
 
+    func attach(_ items: [TimelineItem], in context: ModelContext) {
+        for item in items where !isAttached(to: item) {
+            let link = NoteLink(item: item)
+            context.insert(link)
+            link.note = self
+        }
+        updatedAt = .now
+    }
+
     func matches(_ query: String) -> Bool {
         title.localizedCaseInsensitiveContains(query) || text.localizedCaseInsensitiveContains(query)
     }

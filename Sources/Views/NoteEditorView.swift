@@ -29,7 +29,7 @@ struct NoteEditorView: View {
                 ForEach(note.attachedLinks) { link in
                     AttachedItemRow(link: link)
                 }
-                Button("Attach Event or Reminder") {
+                Button("Attach Events or Reminders") {
                     showingItemPicker = true
                 }
             }
@@ -51,7 +51,10 @@ struct NoteEditorView: View {
             Text("Events and reminders it's attached to won't change.")
         }
         .sheet(isPresented: $showingItemPicker) {
-            ItemPickerView(note: note)
+            ItemPickerView(isAttached: note.isAttached(to:)) { items in
+                note.attach(items, in: modelContext)
+                modelContext.saveNotes(reportingTo: eventKit)
+            }
         }
         .onDisappear {
             if deleteOnClose {
@@ -114,7 +117,7 @@ struct AttachedItemRow: View {
 
     private var subtitle: String {
         guard let item else { return "Can't find this item. It may have been deleted." }
-        return [item.dayLabel, item.timeLabel, item.sourceName].compactMap { $0 }.joined(separator: ", ")
+        return "\(item.scheduleLabel), \(item.sourceName)"
     }
 
     private func resolve() {
@@ -125,45 +128,53 @@ struct AttachedItemRow: View {
     }
 }
 
-/// Picks an event or reminder for a note. Shows today until you search.
+/// Picks events and reminders for a note, split by tab. Stays open while you pick,
+/// and hands back everything selected when you tap Done.
 struct ItemPickerView: View {
+    private enum Tab: String, CaseIterable, Identifiable {
+        case events = "Events"
+        case reminders = "Reminders"
+        var id: String { rawValue }
+    }
+
     @Environment(EventKitService.self) private var eventKit
-    @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
-    let note: Note
+    /// Items that are already attached show as checked and can't be picked again.
+    let isAttached: (TimelineItem) -> Bool
+    let onDone: ([TimelineItem]) -> Void
 
+    @State private var tab = Tab.events
     @State private var searchText = ""
     @State private var items: [TimelineItem] = []
+    @State private var selected: [String: TimelineItem] = [:]
     @State private var hasLoaded = false
 
     private var trimmedSearch: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var visibleItems: [TimelineItem] {
+        items.filter { item in
+            (item.kind == .event) == (tab == .events)
+                && (trimmedSearch.isEmpty
+                    || item.title.localizedCaseInsensitiveContains(trimmedSearch)
+                    || (item.notes?.localizedCaseInsensitiveContains(trimmedSearch) ?? false))
+        }
+    }
+
     var body: some View {
         NavigationStack {
-            List(items) { item in
-                Button {
-                    attach(item)
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.title)
-                                .foregroundStyle(.primary)
-                            Text([item.dayLabel, item.timeLabel].compactMap { $0 }.joined(separator: ", "))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if note.isAttached(to: item) {
-                            Image(systemName: "checkmark")
-                                .accessibilityLabel("Attached")
-                        }
-                    }
+            List(visibleItems) { item in
+                row(item)
+            }
+            .safeAreaInset(edge: .top) {
+                Picker("Type", selection: $tab) {
+                    ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
                 }
-                .buttonStyle(.plain)
-                .disabled(note.isAttached(to: item))
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.bottom, 8)
             }
             .overlay {
                 if !eventKit.accessGranted {
@@ -172,57 +183,73 @@ struct ItemPickerView: View {
                         systemImage: "calendar.badge.exclamationmark",
                         description: Text("Allow access to attach events and reminders.")
                     )
-                } else if hasLoaded && items.isEmpty {
+                } else if hasLoaded && visibleItems.isEmpty {
                     if trimmedSearch.isEmpty {
                         ContentUnavailableView(
-                            "Nothing today",
-                            systemImage: "magnifyingglass",
-                            description: Text("Search for an event or reminder.")
+                            tab == .events ? "No upcoming events" : "No open reminders",
+                            systemImage: tab == .events ? "calendar" : "checklist",
+                            description: Text("Nothing to attach here in the next 30 days.")
                         )
                     } else {
                         ContentUnavailableView.search(text: trimmedSearch)
                     }
                 }
             }
-            .navigationTitle("Attach to Note")
+            .navigationTitle(selected.isEmpty ? "Attach" : "\(selected.count) Selected")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, prompt: "Search the next 30 days")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        onDone(Array(selected.values))
+                        dismiss()
+                    }
+                    .disabled(selected.isEmpty)
+                }
             }
-            .task(id: trimmedSearch) {
+            .task {
                 await load()
             }
         }
     }
 
-    /// Debounced by the `.task(id:)` restart, like search on Today.
-    private func load() async {
-        guard eventKit.accessGranted else { return }
-        let query = trimmedSearch
-        if !query.isEmpty {
-            try? await Task.sleep(for: .milliseconds(200))
-            guard !Task.isCancelled else { return }
+    private func row(_ item: TimelineItem) -> some View {
+        let attached = isAttached(item)
+        let isChecked = attached || selected[item.linkKey] != nil
+        return Button {
+            if selected.removeValue(forKey: item.linkKey) == nil {
+                selected[item.linkKey] = item
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: isChecked ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isChecked ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title)
+                    Text(attached ? "Already attached" : item.scheduleLabel)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .contentShape(Rectangle())
         }
-        let found = query.isEmpty
-            ? await eventKit.fetchTimeline(for: .now)
-            : await eventKit.search(query)
-        guard !Task.isCancelled else { return }
-        // A repeating event appears once per occurrence, but a note covers them all.
-        var seen = Set<String>()
-        items = found.filter { seen.insert($0.externalIdentifier.isEmpty ? $0.id : $0.externalIdentifier).inserted }
-        hasLoaded = true
+        .buttonStyle(.plain)
+        .disabled(attached)
+        .accessibilityAddTraits(isChecked ? .isSelected : [])
     }
 
-    private func attach(_ item: TimelineItem) {
-        let link = NoteLink(item: item)
-        modelContext.insert(link)
-        link.note = note
-        note.updatedAt = .now
-        modelContext.saveNotes(reportingTo: eventKit)
-        dismiss()
+    private func load() async {
+        guard eventKit.accessGranted else { return }
+        let found = await eventKit.upcomingItems()
+        // A repeating event appears once per occurrence, but a note covers them all.
+        var seen = Set<String>()
+        items = found.filter { seen.insert($0.linkKey).inserted }
+        hasLoaded = true
     }
 }
 
@@ -310,10 +337,7 @@ struct NotePickerView: View {
     }
 
     private func attach(_ note: Note) {
-        let link = NoteLink(item: item)
-        modelContext.insert(link)
-        link.note = note
-        note.updatedAt = .now
+        note.attach([item], in: modelContext)
         modelContext.saveNotes(reportingTo: eventKit)
         dismiss()
     }

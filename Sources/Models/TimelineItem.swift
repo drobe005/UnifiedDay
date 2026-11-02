@@ -48,6 +48,16 @@ struct TimelineItem: Identifiable, Hashable {
         return startDate.formatted(date: .omitted, time: .shortened)
     }
 
+    /// One value per event or reminder, so all occurrences of a repeating event match.
+    var linkKey: String {
+        externalIdentifier.isEmpty ? id : externalIdentifier
+    }
+
+    /// The day and any time, such as "Today, 9:00 AM".
+    var scheduleLabel: String {
+        [dayLabel ?? "No date", timeLabel].compactMap { $0 }.joined(separator: ", ")
+    }
+
     /// "Today", "Tomorrow", "Yesterday", or a short date. Nil without a date.
     var dayLabel: String? {
         guard let startDate else { return nil }

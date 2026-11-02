@@ -17,6 +17,8 @@ struct ComposerView: View {
     @State private var notes = ""
     @State private var selectedCalendarID: String?
     @State private var selectedListID: String?
+    @State private var attachments: [TimelineItem] = []
+    @State private var showingItemPicker = false
     @FocusState private var titleFocused: Bool
 
     /// When set, the composer writes a note for this item and hides the type picker.
@@ -65,6 +67,23 @@ struct ComposerView: View {
                     } footer: {
                         Text("Saved in UnifiedDay and your iCloud. Not visible in Apple's apps.")
                     }
+
+                    Section("Attached to") {
+                        if let attachedItem {
+                            attachmentRow(attachedItem)
+                        }
+                        ForEach(attachments) { item in
+                            attachmentRow(item)
+                                .swipeActions(edge: .trailing) {
+                                    Button("Remove", role: .destructive) {
+                                        attachments.removeAll { $0.linkKey == item.linkKey }
+                                    }
+                                }
+                        }
+                        Button("Attach Events or Reminders") {
+                            showingItemPicker = true
+                        }
+                    }
                 } else {
                     Section {
                         DatePicker("Date", selection: $date, displayedComponents: includeTime ? [.date, .hourAndMinute] : [.date])
@@ -94,6 +113,11 @@ struct ComposerView: View {
             }
             .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $showingItemPicker) {
+                ItemPickerView(isAttached: isAttached) { items in
+                    attachments += items
+                }
+            }
             .onAppear {
                 selectedCalendarID = eventKit.preferredEventCalendar()?.calendarIdentifier
                 selectedListID = eventKit.preferredReminderList()?.calendarIdentifier
@@ -111,16 +135,25 @@ struct ComposerView: View {
         }
     }
 
+    private func isAttached(_ item: TimelineItem) -> Bool {
+        item.linkKey == attachedItem?.linkKey || attachments.contains { $0.linkKey == item.linkKey }
+    }
+
+    private func attachmentRow(_ item: TimelineItem) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(item.title)
+            Text(item.scheduleLabel)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     private func save() {
         let trimmed = title.trimmingCharacters(in: .whitespaces)
         if kind == .note {
             let note = Note(title: trimmed, text: notes)
             modelContext.insert(note)
-            if let attachedItem {
-                let link = NoteLink(item: attachedItem)
-                modelContext.insert(link)
-                link.note = note
-            }
+            note.attach([attachedItem].compactMap { $0 } + attachments, in: modelContext)
             modelContext.saveNotes(reportingTo: eventKit)
         } else if kind == .event {
             let calendar = eventKit.writableEventCalendars().first { $0.calendarIdentifier == selectedCalendarID }
