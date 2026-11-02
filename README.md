@@ -3,11 +3,14 @@
 Working title for an iOS app that shows Apple Calendar events and Reminders in one
 daily timeline. EventKit-based, no backend. Built in Claude Code.
 
+Want early access? Join the TestFlight beta waitlist: https://deiondrickroberts.com/unifiedday-beta?ref=github
+
 ## What is here
 
 - `UnifiedDay.xcodeproj` - the Xcode project.
 - `Sources/` - the SwiftUI app.
 - `BUILD_PLAN.md` - phased build plan with acceptance criteria. Feed phases to Claude Code one at a time.
+- `docs/waitlist.md` - how the beta waitlist works.
 - `CLAUDE.md` - project conventions. Put this at the repo root so Claude Code picks it up.
 - The full product spec is attached to the UnifiedDay page in Notion.
 
