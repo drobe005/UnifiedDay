@@ -1,30 +1,47 @@
+import SwiftData
 import SwiftUI
 
 enum AppTab {
-    case today, calendar, reminders, settings
+    case today, calendar, reminders, notes, settings
 }
 
-/// One press of the + button, carrying the date the composer should start on.
+/// One press of the + button, carrying what the composer should start on.
 struct ComposerRequest: Identifiable {
     let id = UUID()
     let date: Date
+    let kind: ComposerView.DraftKind
+}
+
+extension EnvironmentValues {
+    /// Identifiers of items with attached notes, for the marker on timeline rows.
+    @Entry var noteLinkKeys: Set<String> = []
 }
 
 @main
 struct UnifiedDayApp: App {
+    private let storage = NoteStorage.makeContainer()
+
     var body: some Scene {
         WindowGroup {
-            RootView()
+            RootView(storageError: storage.error)
         }
+        .modelContainer(storage.container)
     }
 }
 
 struct RootView: View {
+    let storageError: String?
+
     @State private var eventKit = EventKitService()
     @State private var composerRequest: ComposerRequest?
     @State private var selectedTab = AppTab.today
     @State private var calendarDay = Calendar.current.startOfDay(for: .now)
     @Environment(\.scenePhase) private var scenePhase
+    @Query private var noteLinks: [NoteLink]
+
+    private var noteLinkKeys: Set<String> {
+        Set(noteLinks.flatMap { [$0.externalID, $0.localID] }.filter { !$0.isEmpty })
+    }
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -37,15 +54,22 @@ struct RootView: View {
             RemindersListView()
                 .tabItem { Label("Reminders", systemImage: "checklist") }
                 .tag(AppTab.reminders)
+            NotesListView()
+                .tabItem { Label("Notes", systemImage: "note.text") }
+                .tag(AppTab.notes)
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gear") }
                 .tag(AppTab.settings)
         }
         .environment(eventKit)
+        .environment(\.noteLinkKeys, noteLinkKeys)
         .overlay(alignment: .bottomTrailing) {
-            if eventKit.accessGranted {
+            if eventKit.accessGranted || selectedTab == .notes {
                 Button {
-                    composerRequest = ComposerRequest(date: composerDate)
+                    composerRequest = ComposerRequest(
+                        date: composerDate,
+                        kind: selectedTab == .notes ? .note : .reminder
+                    )
                 } label: {
                     Image(systemName: "plus")
                         .font(.title2.weight(.semibold))
@@ -57,7 +81,7 @@ struct RootView: View {
                 .padding(.trailing)
                 // Sits above the tab bar so the two never overlap.
                 .padding(.bottom, 64)
-                .accessibilityLabel("Add event or reminder")
+                .accessibilityLabel("Add event, reminder, or note")
             }
         }
         .overlay(alignment: .top) {
@@ -69,8 +93,13 @@ struct RootView: View {
         }
         .animation(.default, value: eventKit.lastError)
         .sheet(item: $composerRequest) { request in
-            ComposerView(initialDate: request.date)
+            ComposerView(initialDate: request.date, initialKind: request.kind)
                 .environment(eventKit)
+        }
+        .task {
+            if let storageError {
+                eventKit.lastError = storageError
+            }
         }
         .task(id: eventKit.changeCount) {
             await eventKit.refreshAlerts()

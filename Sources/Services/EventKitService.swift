@@ -121,26 +121,56 @@ final class EventKitService {
 
     private func fetchEvents(start: Date, end: Date) -> [TimelineItem] {
         let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
-        return store.events(matching: predicate).map { event in
-            TimelineItem(
-                // Occurrences of a repeating event share an identifier, so add the date.
-                id: "event-\(event.eventIdentifier ?? UUID().uuidString)-\(event.occurrenceDate.timeIntervalSince1970)",
-                kind: .event,
-                title: event.title ?? "(No title)",
-                startDate: event.startDate,
-                endDate: event.endDate,
-                isAllDay: event.isAllDay,
-                hasDueTime: true,
-                sourceID: event.calendar.calendarIdentifier,
-                sourceName: event.calendar.title,
-                sourceColor: Color(event.calendar.cgColor),
-                isCompleted: false,
-                notes: event.notes,
-                isReadOnly: !event.calendar.allowsContentModifications,
-                occurrenceDate: event.occurrenceDate,
-                storeIdentifier: event.eventIdentifier ?? ""
-            )
+        return store.events(matching: predicate).map(timelineItem(from:))
+    }
+
+    private func timelineItem(from event: EKEvent) -> TimelineItem {
+        TimelineItem(
+            // Occurrences of a repeating event share an identifier, so add the date.
+            id: "event-\(event.eventIdentifier ?? UUID().uuidString)-\(event.occurrenceDate.timeIntervalSince1970)",
+            kind: .event,
+            title: event.title ?? "(No title)",
+            startDate: event.startDate,
+            endDate: event.endDate,
+            isAllDay: event.isAllDay,
+            hasDueTime: true,
+            sourceID: event.calendar.calendarIdentifier,
+            sourceName: event.calendar.title,
+            sourceColor: Color(event.calendar.cgColor),
+            isCompleted: false,
+            notes: event.notes,
+            isReadOnly: !event.calendar.allowsContentModifications,
+            occurrenceDate: event.occurrenceDate,
+            storeIdentifier: event.eventIdentifier ?? "",
+            externalIdentifier: event.calendarItemExternalIdentifier ?? ""
+        )
+    }
+
+    /// Finds the event or reminder a note is attached to. Tries the identifier shared
+    /// across devices first, then the local one. Repeating events open on their next
+    /// occurrence, so edits don't land on one in the past.
+    func item(kind: TimelineItemKind, externalID: String, localID: String) -> TimelineItem? {
+        let matches = externalID.isEmpty ? [] : store.calendarItems(withExternalIdentifier: externalID)
+        switch kind {
+        case .reminder:
+            let reminder = matches.compactMap { $0 as? EKReminder }.first
+                ?? store.calendarItem(withIdentifier: localID) as? EKReminder
+            return reminder.map(Self.timelineItem(from:))
+        case .event:
+            guard let event = matches.compactMap({ $0 as? EKEvent }).first ?? store.event(withIdentifier: localID) else {
+                return nil
+            }
+            return timelineItem(from: nextOccurrence(of: event))
         }
+    }
+
+    private func nextOccurrence(of event: EKEvent) -> EKEvent {
+        guard event.hasRecurrenceRules,
+              let end = Calendar.current.date(byAdding: .year, value: 1, to: .now) else { return event }
+        let predicate = store.predicateForEvents(withStart: .now, end: end, calendars: [event.calendar])
+        return store.events(matching: predicate)
+            .filter { $0.eventIdentifier == event.eventIdentifier }
+            .min { $0.startDate < $1.startDate } ?? event
     }
 
     private func fetchRemindersDue(before endOfDay: Date) async -> [TimelineItem] {
@@ -199,7 +229,8 @@ final class EventKitService {
             notes: reminder.notes,
             isReadOnly: !reminder.calendar.allowsContentModifications,
             occurrenceDate: nil,
-            storeIdentifier: reminder.calendarItemIdentifier
+            storeIdentifier: reminder.calendarItemIdentifier,
+            externalIdentifier: reminder.calendarItemExternalIdentifier ?? ""
         )
     }
 

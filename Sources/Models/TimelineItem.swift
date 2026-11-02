@@ -30,6 +30,8 @@ struct TimelineItem: Identifiable, Hashable {
     let occurrenceDate: Date?
     /// EKEvent.eventIdentifier or EKReminder.calendarItemIdentifier. Used for edits.
     let storeIdentifier: String
+    /// calendarItemExternalIdentifier. Stays the same across devices, so notes link by it.
+    let externalIdentifier: String
 
     var isOverdue: Bool {
         guard kind == .reminder, let due = startDate, !isCompleted else { return false }

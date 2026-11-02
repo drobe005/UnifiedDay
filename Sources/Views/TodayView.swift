@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 /// The core screen: one chronological timeline for the day.
@@ -13,6 +14,11 @@ struct TodayView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var searchResults: [TimelineItem] = []
     @State private var isSearching = false
+    @Query(sort: \Note.updatedAt, order: .reverse) private var notes: [Note]
+
+    private var matchingNotes: [Note] {
+        notes.filter { $0.matches(trimmedSearch) }
+    }
 
     /// Matches the app icon badge: the timeline's reminders are all overdue or due today.
     private var attentionCount: Int {
@@ -41,7 +47,7 @@ struct TodayView: View {
             .navigationTitle(Date.now.formatted(
                 .dateTime.weekday(typeSize.isAccessibilitySize ? .abbreviated : .wide).month(.abbreviated).day()
             ))
-            .searchable(text: $searchText, prompt: "Search the next 30 days")
+            .searchable(text: $searchText, prompt: "Search items and notes")
             .task(id: trimmedSearch) {
                 await runSearch()
             }
@@ -129,10 +135,21 @@ struct TodayView: View {
                     Task { await load() }
                 }
             }
+            if !matchingNotes.isEmpty {
+                Section("Notes") {
+                    ForEach(matchingNotes) { note in
+                        NavigationLink {
+                            NoteEditorView(note: note)
+                        } label: {
+                            NoteRow(note: note)
+                        }
+                    }
+                }
+            }
         }
         .contentMargins(.bottom, ComposerButtonClearance.height, for: .scrollContent)
         .overlay {
-            if searchResults.isEmpty && !isSearching {
+            if searchResults.isEmpty && matchingNotes.isEmpty && !isSearching {
                 ContentUnavailableView.search(text: trimmedSearch)
             }
         }
@@ -256,6 +273,11 @@ struct TimelineRow: View {
     let onChange: () -> Void
     @State private var showingDetail = false
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.noteLinkKeys) private var noteLinkKeys
+
+    private var hasNote: Bool {
+        noteLinkKeys.contains(item.externalIdentifier) || noteLinkKeys.contains(item.storeIdentifier)
+    }
 
     private var trailingLabel: String? {
         if showsDay || item.isOverdue, let day = item.dayLabel {
@@ -295,9 +317,15 @@ struct TimelineRow: View {
                     Text(item.title)
                         .strikethrough(item.isCompleted)
                         .foregroundStyle(item.isCompleted ? .secondary : .primary)
-                    Text(item.sourceName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 4) {
+                        Text(item.sourceName)
+                        if hasNote {
+                            Image(systemName: "note.text")
+                                .accessibilityLabel("Has a note")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
 
                 if !stacked {

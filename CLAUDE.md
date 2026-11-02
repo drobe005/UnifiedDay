@@ -4,7 +4,9 @@
 
 UnifiedDay is an iOS app (SwiftUI, Swift 6, iOS 18+) that shows Apple Calendar
 events and Apple Reminders in one daily timeline. EventKit is the source of truth.
-There is no backend and no local database in v0.1.
+There is no backend. In-app notes are the one exception to Apple storage: they use
+SwiftData synced through the user's private iCloud (CloudKit). Every SwiftData
+property needs a default value and relationships must be optional.
 
 ## Conventions
 

@@ -1,0 +1,104 @@
+import Foundation
+import SwiftData
+
+/// A note kept by UnifiedDay, not by Apple's apps. Stored with SwiftData and synced
+/// through the user's private iCloud. CloudKit needs a default value on every
+/// property and optional relationships.
+@Model
+final class Note {
+    var title = ""
+    var text = ""
+    var createdAt = Date.now
+    var updatedAt = Date.now
+    @Relationship(deleteRule: .cascade, inverse: \NoteLink.note)
+    var links: [NoteLink]? = []
+
+    init(title: String = "", text: String = "") {
+        self.title = title
+        self.text = text
+    }
+
+    /// The title, or the first line of text when there is no title.
+    var displayTitle: String {
+        if !title.isEmpty { return title }
+        return text.split(whereSeparator: \.isNewline).first.map(String.init) ?? "New note"
+    }
+
+    /// Text shown under the title in lists.
+    var preview: String {
+        guard title.isEmpty else { return text }
+        return text.split(whereSeparator: \.isNewline).dropFirst().joined(separator: " ")
+    }
+
+    var attachedLinks: [NoteLink] {
+        (links ?? []).sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    }
+
+    func matches(_ query: String) -> Bool {
+        title.localizedCaseInsensitiveContains(query) || text.localizedCaseInsensitiveContains(query)
+    }
+
+    func isAttached(to item: TimelineItem) -> Bool {
+        (links ?? []).contains { $0.matches(item) }
+    }
+}
+
+/// Ties a note to an event or reminder. All occurrences of a repeating event share
+/// an external identifier, so a note on one shows on the whole series.
+@Model
+final class NoteLink {
+    var kindValue = TimelineItemKind.event.rawValue
+    /// calendarItemExternalIdentifier: the same on every device.
+    var externalID = ""
+    /// eventIdentifier or calendarItemIdentifier: a fallback for this device.
+    var localID = ""
+    /// Last known title, shown when the item can't be found.
+    var title = ""
+    var note: Note?
+
+    init(item: TimelineItem) {
+        kindValue = item.kind.rawValue
+        externalID = item.externalIdentifier
+        localID = item.storeIdentifier
+        title = item.title
+    }
+
+    var kind: TimelineItemKind {
+        TimelineItemKind(rawValue: kindValue) ?? .event
+    }
+
+    func matches(_ item: TimelineItem) -> Bool {
+        guard kind == item.kind else { return false }
+        return (!externalID.isEmpty && externalID == item.externalIdentifier) || localID == item.storeIdentifier
+    }
+}
+
+enum NoteStorage {
+    /// Opens saved notes. Uses memory only if the store can't open, so a storage
+    /// problem shows a message instead of stopping the app from launching.
+    static func makeContainer() -> (container: ModelContainer, error: String?) {
+        let schema = Schema([Note.self, NoteLink.self])
+        do {
+            let configuration = ModelConfiguration(schema: schema, cloudKitDatabase: .automatic)
+            return (try ModelContainer(for: schema, configurations: configuration), nil)
+        } catch {
+            let memory = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true, cloudKitDatabase: .none)
+            guard let container = try? ModelContainer(for: schema, configurations: memory) else {
+                fatalError("Couldn't open note storage: \(error)")
+            }
+            return (container, "Your notes couldn't be opened. New notes won't be saved.")
+        }
+    }
+}
+
+extension ModelContext {
+    /// Saves now and reports any failure through the service's error banner.
+    @MainActor
+    func saveNotes(reportingTo eventKit: EventKitService) {
+        do {
+            try save()
+        } catch {
+            eventKit.lastError = error.localizedDescription
+        }
+    }
+}

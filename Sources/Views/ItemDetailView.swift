@@ -19,6 +19,8 @@ struct ItemDetailView: View {
     @State private var sourceID: String
     @State private var saveError: String?
     @State private var confirmingDelete = false
+    @State private var showingNewNote = false
+    @State private var showingNotePicker = false
 
     init(item: TimelineItem, onChange: @escaping () -> Void) {
         self.item = item
@@ -71,6 +73,12 @@ struct ItemDetailView: View {
                     }
                 }
 
+                AttachedNotesSection(
+                    item: item,
+                    onNewNote: { showingNewNote = true },
+                    onAttachExisting: { showingNotePicker = true }
+                )
+
                 if let saveError {
                     Section {
                         Label(saveError, systemImage: "exclamationmark.triangle")
@@ -89,6 +97,12 @@ struct ItemDetailView: View {
             .navigationTitle(isEvent ? "Event" : "Reminder")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
+            .sheet(isPresented: $showingNewNote) {
+                ComposerView(initialKind: .note, attachingTo: item)
+            }
+            .sheet(isPresented: $showingNotePicker) {
+                NotePickerView(item: item)
+            }
             .confirmationDialog(
                 "Delete this \(isEvent ? "event" : "reminder")?",
                 isPresented: $confirmingDelete,
@@ -129,7 +143,7 @@ struct ItemDetailView: View {
             }
         }
 
-        Section("Notes") {
+        Section("Apple notes") {
             TextField("Optional", text: $notes, axis: .vertical)
                 .lineLimit(3...10)
         }
@@ -144,7 +158,7 @@ struct ItemDetailView: View {
             }
         }
         if let itemNotes = item.notes, !itemNotes.isEmpty {
-            Section("Notes") {
+            Section("Apple notes") {
                 Text(itemNotes)
             }
         }
