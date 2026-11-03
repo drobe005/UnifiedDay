@@ -1,14 +1,16 @@
 import SwiftData
 import SwiftUI
 
-/// Edits one note. Changes save as you type, so there is no Save button.
+/// Edits one note. Changes save as you type; Save also saves and closes the note.
 struct NoteEditorView: View {
     @Environment(EventKitService.self) private var eventKit
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.composerButtonHidden) private var composerButtonHidden
 
     let note: Note
 
+    @Query(sort: \NoteFolder.name) private var folders: [NoteFolder]
     @State private var showingItemPicker = false
     @State private var confirmingDelete = false
     /// Deleting waits until the screen closes, so it never shows a deleted note.
@@ -19,10 +21,23 @@ struct NoteEditorView: View {
             Section {
                 TextField("Title", text: edit(\.title))
                     .font(.headline)
-                TextField("Write something", text: edit(\.text), axis: .vertical)
-                    .lineLimit(8...)
+                if #available(iOS 26.0, *) {
+                    RichNoteEditor(note: note)
+                } else {
+                    TextField("Write something", text: edit(\.text), axis: .vertical)
+                        .lineLimit(8...)
+                }
             } footer: {
                 Text("Saved in UnifiedDay and your iCloud. Not visible in Apple's apps.")
+            }
+
+            Section {
+                Picker("Folder", selection: folderSelection) {
+                    Text("None").tag(UUID?.none)
+                    ForEach(folders) { folder in
+                        Text(folder.name).tag(Optional(folder.uuid))
+                    }
+                }
             }
 
             Section("Attached to") {
@@ -42,6 +57,25 @@ struct NoteEditorView: View {
         }
         .navigationTitle("Note")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                ShareLink(item: note.shareText)
+                    .disabled(note.shareText.isEmpty)
+                Button {
+                    note.isPinned.toggle()
+                } label: {
+                    Image(systemName: note.isPinned ? "pin.slash" : "pin")
+                }
+                .accessibilityLabel(note.isPinned ? "Unpin" : "Pin")
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") {
+                    modelContext.saveNotes(reportingTo: eventKit)
+                    dismiss()
+                }
+            }
+        }
+        .onAppear { composerButtonHidden.wrappedValue = true }
         .confirmationDialog("Delete this note?", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
                 deleteOnClose = true
@@ -57,10 +91,19 @@ struct NoteEditorView: View {
             }
         }
         .onDisappear {
+            composerButtonHidden.wrappedValue = false
             if deleteOnClose {
                 modelContext.delete(note)
             }
             modelContext.saveNotes(reportingTo: eventKit)
+        }
+    }
+
+    private var folderSelection: Binding<UUID?> {
+        Binding {
+            note.folder?.uuid
+        } set: { uuid in
+            note.folder = folders.first { $0.uuid == uuid }
         }
     }
 
@@ -72,6 +115,130 @@ struct NoteEditorView: View {
             note[keyPath: field] = value
             note.updatedAt = .now
         }
+    }
+}
+
+/// The note's body with formatting. Buttons above the keyboard apply bold, italic,
+/// underline, strikethrough, headings, and bullets to the selection.
+@available(iOS 26.0, *)
+struct RichNoteEditor: View {
+    let note: Note
+
+    @State private var text: AttributedString
+    @State private var selection = AttributedTextSelection()
+    @FocusState private var isFocused: Bool
+
+    init(note: Note) {
+        self.note = note
+        _text = State(initialValue: RichText.decode(note.richText, plainText: note.text))
+    }
+
+    private var current: RichTextStyle {
+        let styles = selection.attributes(in: text).map(RichTextStyle.init)
+        guard let first = styles.first else { return RichTextStyle() }
+        return RichTextStyle(
+            bold: styles.allSatisfy(\.bold) && first.bold,
+            italic: styles.allSatisfy(\.italic) && first.italic,
+            underline: styles.allSatisfy(\.underline) && first.underline,
+            strikethrough: styles.allSatisfy(\.strikethrough) && first.strikethrough,
+            heading: styles.allSatisfy(\.heading) && first.heading
+        )
+    }
+
+    var body: some View {
+        TextEditor(text: $text, selection: $selection)
+            .focused($isFocused)
+            .frame(minHeight: 200)
+            .overlay(alignment: .topLeading) {
+                if text.characters.isEmpty {
+                    Text("Write something")
+                        .foregroundStyle(.tertiary)
+                        .padding(.top, 8)
+                        .padding(.leading, 5)
+                        .allowsHitTesting(false)
+                }
+            }
+            .toolbar {
+                if isFocused {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        formatButton("Bold", "bold", on: current.bold) { $0.bold.toggle() }
+                        formatButton("Italic", "italic", on: current.italic) { $0.italic.toggle() }
+                        formatButton("Underline", "underline", on: current.underline) { $0.underline.toggle() }
+                        formatButton("Strikethrough", "strikethrough", on: current.strikethrough) { $0.strikethrough.toggle() }
+                        formatButton("Heading", "textformat.size.larger", on: current.heading) { $0.heading.toggle() }
+                        Button("Bulleted list", systemImage: "list.bullet", action: toggleBullet)
+                        Spacer()
+                        Button("Done") { isFocused = false }
+                    }
+                }
+            }
+            .onChange(of: text) {
+                save()
+            }
+    }
+
+    private func formatButton(
+        _ title: String,
+        _ symbol: String,
+        on: Bool,
+        change: @escaping (inout RichTextStyle) -> Void
+    ) -> some View {
+        Button {
+            // Apply one target style to the whole selection, so mixed text turns all on.
+            var target = current
+            change(&target)
+            text.transformAttributes(in: &selection) { container in
+                var style = RichTextStyle(container)
+                style.bold = target.bold
+                style.italic = target.italic
+                style.underline = target.underline
+                style.strikethrough = target.strikethrough
+                style.heading = target.heading
+                style.apply(to: &container)
+            }
+        } label: {
+            Image(systemName: symbol)
+                .foregroundStyle(on ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+        }
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    /// Adds or removes a bullet at the start of the line holding the cursor.
+    private func toggleBullet() {
+        let bullet = "• "
+        text.transform(updating: &selection) { text in
+            let index: AttributedString.Index
+            switch selection.indices(in: text) {
+            case .insertionPoint(let point): index = point
+            case .ranges(let ranges): index = ranges.ranges.first?.lowerBound ?? text.startIndex
+            }
+            var lineStart = index
+            while lineStart > text.startIndex {
+                let previous = text.characters.index(before: lineStart)
+                if text.characters[previous] == "\n" { break }
+                lineStart = previous
+            }
+            if text.characters[lineStart...].starts(with: bullet) {
+                let end = text.characters.index(lineStart, offsetBy: bullet.count)
+                text.removeSubrange(lineStart..<end)
+            } else {
+                text.insert(AttributedString(bullet, attributes: RichTextStyle().attributes), at: lineStart)
+            }
+        }
+    }
+
+    private func save() {
+        let plain = String(text.characters)
+        let data = RichText.encode(text)
+        guard data != note.richText else { return }
+        // Opening an older note converts it once; only real edits, formatting included, change the date.
+        let unformatted = RichText.encode(RichText.decode(nil, plainText: note.text))
+        if note.richText != nil || data != unformatted {
+            note.updatedAt = .now
+        }
+        note.text = plain
+        note.richText = data
     }
 }
 

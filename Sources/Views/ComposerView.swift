@@ -19,6 +19,10 @@ struct ComposerView: View {
     @State private var selectedListID: String?
     @State private var attachments: [TimelineItem] = []
     @State private var showingItemPicker = false
+    @State private var repeatOption = RepeatOption.never
+    @State private var folderID: UUID?
+    @Query(sort: \NoteFolder.name) private var folders: [NoteFolder]
+    @AppStorage(NotesListView.folderKey) private var viewedFolderID = ""
     @FocusState private var titleFocused: Bool
 
     /// When set, the composer writes a note for this item and hides the type picker.
@@ -68,6 +72,17 @@ struct ComposerView: View {
                         Text("Saved in UnifiedDay and your iCloud. Not visible in Apple's apps.")
                     }
 
+                    if !folders.isEmpty {
+                        Section {
+                            Picker("Folder", selection: $folderID) {
+                                Text("None").tag(UUID?.none)
+                                ForEach(folders) { folder in
+                                    Text(folder.name).tag(Optional(folder.uuid))
+                                }
+                            }
+                        }
+                    }
+
                     Section("Attached to") {
                         if let attachedItem {
                             attachmentRow(attachedItem)
@@ -88,6 +103,7 @@ struct ComposerView: View {
                     Section {
                         DatePicker("Date", selection: $date, displayedComponents: includeTime ? [.date, .hourAndMinute] : [.date])
                         Toggle("Include time", isOn: $includeTime)
+                        RepeatPicker(selection: $repeatOption)
                     }
 
                     Section {
@@ -121,6 +137,8 @@ struct ComposerView: View {
             .onAppear {
                 selectedCalendarID = eventKit.preferredEventCalendar()?.calendarIdentifier
                 selectedListID = eventKit.preferredReminderList()?.calendarIdentifier
+                // New notes go in the folder being viewed on the Notes tab.
+                folderID = folders.first { $0.uuid.uuidString == viewedFolderID }?.uuid
                 titleFocused = true
             }
             .toolbar {
@@ -153,6 +171,7 @@ struct ComposerView: View {
         if kind == .note {
             let note = Note(title: trimmed, text: notes)
             modelContext.insert(note)
+            note.folder = folders.first { $0.uuid == folderID }
             note.attach([attachedItem].compactMap { $0 } + attachments, in: modelContext)
             modelContext.saveNotes(reportingTo: eventKit)
         } else if kind == .event {
@@ -165,7 +184,8 @@ struct ComposerView: View {
                 end: end,
                 isAllDay: !includeTime,
                 calendar: calendar,
-                notes: notes.isEmpty ? nil : notes
+                notes: notes.isEmpty ? nil : notes,
+                repeatOption: repeatOption
             )
         } else {
             let list = eventKit.writableReminderLists().first { $0.calendarIdentifier == selectedListID }
@@ -174,9 +194,25 @@ struct ComposerView: View {
                 dueDate: date,
                 includeTime: includeTime,
                 list: list,
-                notes: notes.isEmpty ? nil : notes
+                notes: notes.isEmpty ? nil : notes,
+                repeatOption: repeatOption
             )
         }
         dismiss()
+    }
+}
+
+/// Repeat choices for events and reminders. Shows Custom only when an item
+/// already repeats in a way made in Apple's apps.
+struct RepeatPicker: View {
+    @Binding var selection: RepeatOption
+
+    var body: some View {
+        Picker("Repeat", selection: $selection) {
+            ForEach(RepeatOption.choices) { Text($0.label).tag($0) }
+            if selection == .custom {
+                Text(RepeatOption.custom.label).tag(RepeatOption.custom)
+            }
+        }
     }
 }

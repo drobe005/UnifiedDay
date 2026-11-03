@@ -142,8 +142,67 @@ final class EventKitService {
             isReadOnly: !event.calendar.allowsContentModifications,
             occurrenceDate: event.occurrenceDate,
             storeIdentifier: event.eventIdentifier ?? "",
-            externalIdentifier: event.calendarItemExternalIdentifier ?? ""
+            externalIdentifier: event.calendarItemExternalIdentifier ?? "",
+            repeatOption: Self.repeatOption(for: event)
         )
+    }
+
+    // MARK: - Repeats
+
+    nonisolated private static let weekdays: Set<EKWeekday> = [.monday, .tuesday, .wednesday, .thursday, .friday]
+
+    /// Maps Apple's recurrence rule to one of the app's choices, or `custom`.
+    nonisolated private static func repeatOption(for item: EKCalendarItem) -> RepeatOption {
+        guard let rules = item.recurrenceRules, !rules.isEmpty else { return .never }
+        guard rules.count == 1, let rule = rules.first,
+              rule.daysOfTheMonth == nil, rule.monthsOfTheYear == nil,
+              rule.weeksOfTheYear == nil, rule.daysOfTheYear == nil, rule.setPositions == nil
+        else { return .custom }
+        let days = Set((rule.daysOfTheWeek ?? []).map(\.dayOfTheWeek))
+        switch (rule.frequency, rule.interval) {
+        case (.daily, 1) where days.isEmpty: return .daily
+        case (.weekly, 1) where days == weekdays: return .weekdays
+        case (.weekly, 1) where days.count <= 1: return .weekly
+        case (.weekly, 2) where days.count <= 1: return .biweekly
+        case (.monthly, 1) where days.isEmpty: return .monthly
+        case (.yearly, 1) where days.isEmpty: return .yearly
+        default: return .custom
+        }
+    }
+
+    /// The rule for a choice. Nil for never; `custom` is never written.
+    private static func recurrenceRule(for option: RepeatOption) -> EKRecurrenceRule? {
+        switch option {
+        case .never, .custom:
+            return nil
+        case .daily:
+            return EKRecurrenceRule(recurrenceWith: .daily, interval: 1, end: nil)
+        case .weekdays:
+            return EKRecurrenceRule(
+                recurrenceWith: .weekly,
+                interval: 1,
+                daysOfTheWeek: weekdays.map { EKRecurrenceDayOfWeek($0) },
+                daysOfTheMonth: nil,
+                monthsOfTheYear: nil,
+                weeksOfTheYear: nil,
+                daysOfTheYear: nil,
+                setPositions: nil,
+                end: nil
+            )
+        case .weekly:
+            return EKRecurrenceRule(recurrenceWith: .weekly, interval: 1, end: nil)
+        case .biweekly:
+            return EKRecurrenceRule(recurrenceWith: .weekly, interval: 2, end: nil)
+        case .monthly:
+            return EKRecurrenceRule(recurrenceWith: .monthly, interval: 1, end: nil)
+        case .yearly:
+            return EKRecurrenceRule(recurrenceWith: .yearly, interval: 1, end: nil)
+        }
+    }
+
+    private static func applyRepeat(_ option: RepeatOption, to item: EKCalendarItem) {
+        guard option != .custom else { return }
+        item.recurrenceRules = recurrenceRule(for: option).map { [$0] }
     }
 
     /// Finds the event or reminder a note is attached to. Tries the identifier shared
@@ -230,7 +289,8 @@ final class EventKitService {
             isReadOnly: !reminder.calendar.allowsContentModifications,
             occurrenceDate: nil,
             storeIdentifier: reminder.calendarItemIdentifier,
-            externalIdentifier: reminder.calendarItemExternalIdentifier ?? ""
+            externalIdentifier: reminder.calendarItemExternalIdentifier ?? "",
+            repeatOption: repeatOption(for: reminder)
         )
     }
 
@@ -268,6 +328,38 @@ final class EventKitService {
     /// All reminder lists, for the Reminders tab.
     func reminderLists() -> [EKCalendar] {
         store.calendars(for: .reminder)
+    }
+
+    /// Makes a new Apple Reminders list in the same account as the default list,
+    /// usually iCloud. Returns false and sets `lastError` on failure.
+    @discardableResult
+    func createReminderList(named title: String) -> Bool {
+        guard let source = store.defaultCalendarForNewReminders()?.source else {
+            lastError = "Couldn't find a Reminders account to add the list to."
+            return false
+        }
+        let list = EKCalendar(for: .reminder, eventStore: store)
+        list.title = title
+        list.source = source
+        do {
+            try store.saveCalendar(list, commit: true)
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Events and open reminders between two days, for the Calendar tab's week,
+    /// month, and custom views. Overdue reminders only show on their own day.
+    func fetchRange(from start: Date, to end: Date) async -> [TimelineItem] {
+        let predicate = store.predicateForIncompleteReminders(
+            withDueDateStarting: start,
+            ending: end,
+            calendars: nil
+        )
+        let reminders = await fetchReminders(matching: predicate)
+        return Self.sortItems(fetchEvents(start: start, end: end) + reminders)
     }
 
     /// Reminder lists that accept changes, for pickers.
@@ -439,7 +531,15 @@ final class EventKitService {
         }
     }
 
-    func createEvent(title: String, start: Date, end: Date, isAllDay: Bool, calendar: EKCalendar?, notes: String?) {
+    func createEvent(
+        title: String,
+        start: Date,
+        end: Date,
+        isAllDay: Bool,
+        calendar: EKCalendar?,
+        notes: String?,
+        repeatOption: RepeatOption = .never
+    ) {
         let event = EKEvent(eventStore: store)
         event.title = title
         event.startDate = start
@@ -447,6 +547,7 @@ final class EventKitService {
         event.isAllDay = isAllDay
         event.notes = notes
         event.calendar = calendar ?? preferredEventCalendar()
+        Self.applyRepeat(repeatOption, to: event)
         do {
             try store.save(event, span: .thisEvent, commit: true)
         } catch {
@@ -454,12 +555,21 @@ final class EventKitService {
         }
     }
 
-    func createReminder(title: String, dueDate: Date?, includeTime: Bool, list: EKCalendar?, notes: String?) {
+    /// Repeats need a due date, so `repeatOption` is ignored without one.
+    func createReminder(
+        title: String,
+        dueDate: Date?,
+        includeTime: Bool,
+        list: EKCalendar?,
+        notes: String?,
+        repeatOption: RepeatOption = .never
+    ) {
         let reminder = EKReminder(eventStore: store)
         reminder.title = title
         reminder.notes = notes
         if let dueDate {
             reminder.dueDateComponents = dueComponents(for: dueDate, includeTime: includeTime)
+            Self.applyRepeat(repeatOption, to: reminder)
         }
         reminder.calendar = list ?? preferredReminderList()
         do {
@@ -469,7 +579,8 @@ final class EventKitService {
         }
     }
 
-    /// Saves edits to an event. Only this occurrence changes for repeating events.
+    /// Saves edits to an event. Only this occurrence changes for repeating events,
+    /// unless the repeat changes: then this and every later occurrence change.
     /// Returns false and sets `lastError` on failure.
     @discardableResult
     func updateEvent(
@@ -479,7 +590,8 @@ final class EventKitService {
         end: Date,
         isAllDay: Bool,
         calendarID: String? = nil,
-        notes: String?
+        notes: String?,
+        repeatOption: RepeatOption? = nil
     ) -> Bool {
         guard let event = event(for: item) else {
             lastError = "That event no longer exists. It may have been deleted in Calendar."
@@ -493,8 +605,13 @@ final class EventKitService {
         if let calendarID, calendarID != item.sourceID, let calendar = store.calendar(withIdentifier: calendarID) {
             event.calendar = calendar
         }
+        var span = EKSpan.thisEvent
+        if let repeatOption, repeatOption != item.repeatOption {
+            Self.applyRepeat(repeatOption, to: event)
+            span = .futureEvents
+        }
         do {
-            try store.save(event, span: .thisEvent, commit: true)
+            try store.save(event, span: span, commit: true)
             lastError = nil
             return true
         } catch {
@@ -512,7 +629,8 @@ final class EventKitService {
         dueDate: Date?,
         includeTime: Bool,
         listID: String? = nil,
-        notes: String?
+        notes: String?,
+        repeatOption: RepeatOption? = nil
     ) -> Bool {
         guard let reminder = store.calendarItem(withIdentifier: item.storeIdentifier) as? EKReminder else {
             lastError = "That reminder no longer exists. It may have been deleted in Reminders."
@@ -521,6 +639,12 @@ final class EventKitService {
         reminder.title = title
         reminder.notes = notes
         reminder.dueDateComponents = dueDate.map { dueComponents(for: $0, includeTime: includeTime) }
+        if dueDate == nil {
+            // Apple's Reminders can't repeat a reminder without a due date.
+            reminder.recurrenceRules = nil
+        } else if let repeatOption, repeatOption != item.repeatOption {
+            Self.applyRepeat(repeatOption, to: reminder)
+        }
         if let listID, listID != item.sourceID, let list = store.calendar(withIdentifier: listID) {
             reminder.calendar = list
         }
@@ -541,8 +665,10 @@ final class EventKitService {
         return Calendar.current.dateComponents(fields, from: date)
     }
 
-    enum RescheduleTarget {
+    enum RescheduleTarget: Equatable {
         case today, tomorrow, nextWeek
+        /// A day picked by the person. Any time on it is ignored.
+        case day(Date)
 
         /// The day this target points at, counted from today (not from the old due date),
         /// so an overdue reminder moved to "Tomorrow" lands on tomorrow.
@@ -557,6 +683,8 @@ final class EventKitService {
                 // First day of next week in the user's locale (Sunday or Monday).
                 let nextWeek = calendar.date(byAdding: .weekOfYear, value: 1, to: today) ?? today
                 return calendar.dateInterval(of: .weekOfYear, for: nextWeek)?.start ?? nextWeek
+            case .day(let date):
+                return calendar.startOfDay(for: date)
             }
         }
     }

@@ -117,6 +117,10 @@ struct TodayView: View {
                     ForEach(section.items) { item in
                         TimelineRow(item: item) {
                             Task { await load() }
+                        } onRemove: { removed, target in
+                            // Rescheduling to today keeps the row; the reload moves it.
+                            if let target, Calendar.current.isDateInToday(target.day()) { return }
+                            items.removeAll { $0.id == removed.id }
                         }
                     }
                 }
@@ -133,6 +137,10 @@ struct TodayView: View {
             ForEach(searchResults) { item in
                 TimelineRow(item: item, showsDay: true) {
                     Task { await load() }
+                } onRemove: { removed, target in
+                    // Search covers many days, so only a delete takes the row out.
+                    guard target == nil else { return }
+                    searchResults.removeAll { $0.id == removed.id }
                 }
             }
             if !matchingNotes.isEmpty {
@@ -271,7 +279,12 @@ struct TimelineRow: View {
     /// Shows the day next to the time, for lists that span more than today.
     var showsDay = false
     let onChange: () -> Void
+    /// Called before a swipe changes the item: with nil for a delete, or with where a
+    /// reschedule moves it. The list removes the row right away if it no longer belongs,
+    /// because a full swipe crashes the list when the row is still there after the swipe.
+    var onRemove: (TimelineItem, EventKitService.RescheduleTarget?) -> Void = { _, _ in }
     @State private var showingDetail = false
+    @State private var showingDatePicker = false
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.noteLinkKeys) private var noteLinkKeys
 
@@ -319,6 +332,10 @@ struct TimelineRow: View {
                         .foregroundStyle(item.isCompleted ? .secondary : .primary)
                     HStack(spacing: 4) {
                         Text(item.sourceName)
+                        if item.repeatOption != .never {
+                            Image(systemName: "repeat")
+                                .accessibilityLabel("Repeats \(item.repeatOption.label.lowercased())")
+                        }
                         if hasNote {
                             Image(systemName: "note.text")
                                 .accessibilityLabel("Has a note")
@@ -368,11 +385,19 @@ struct TimelineRow: View {
                     }
                     .tint(.orange)
                 }
+
+                Button {
+                    showingDatePicker = true
+                } label: {
+                    Label("Pick date", systemImage: "calendar")
+                }
+                .tint(.teal)
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             if !item.isReadOnly {
                 Button(role: .destructive) {
+                    onRemove(item, nil)
                     eventKit.delete(item)
                     onChange()
                 } label: {
@@ -384,11 +409,53 @@ struct TimelineRow: View {
             ItemDetailView(item: item, onChange: onChange)
                 .environment(eventKit)
         }
+        .sheet(isPresented: $showingDatePicker) {
+            RescheduleDateSheet(item: item) { day in
+                reschedule(to: .day(day))
+            }
+            .presentationDetents([.medium, .large])
+        }
     }
 
     private func reschedule(to target: EventKitService.RescheduleTarget) {
+        onRemove(item, target)
         eventKit.reschedule(item, to: target)
         onChange()
+    }
+}
+
+/// Picks a day to move a reminder to. Keeps the reminder's time of day.
+struct RescheduleDateSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let item: TimelineItem
+    let onPick: (Date) -> Void
+    @State private var day: Date
+
+    init(item: TimelineItem, onPick: @escaping (Date) -> Void) {
+        self.item = item
+        self.onPick = onPick
+        _day = State(initialValue: item.startDate ?? .now)
+    }
+
+    var body: some View {
+        NavigationStack {
+            DatePicker("Day", selection: $day, displayedComponents: .date)
+                .datePickerStyle(.graphical)
+                .padding(.horizontal)
+                .navigationTitle("Move \(item.title)")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { dismiss() }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Move") {
+                            onPick(day)
+                            dismiss()
+                        }
+                    }
+                }
+        }
     }
 }
 

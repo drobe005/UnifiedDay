@@ -17,6 +17,7 @@ struct ItemDetailView: View {
     @State private var hasDueDate: Bool
     @State private var includeTime: Bool
     @State private var sourceID: String
+    @State private var repeatOption: RepeatOption
     @State private var saveError: String?
     @State private var confirmingDelete = false
     @State private var showingNewNote = false
@@ -34,6 +35,7 @@ struct ItemDetailView: View {
         _hasDueDate = State(initialValue: item.startDate != nil)
         _includeTime = State(initialValue: item.hasDueTime)
         _sourceID = State(initialValue: item.sourceID)
+        _repeatOption = State(initialValue: item.repeatOption)
     }
 
     private var isEvent: Bool { item.kind == .event }
@@ -128,6 +130,11 @@ struct ItemDetailView: View {
                 Toggle("All day", isOn: $isAllDay)
                 DatePicker("Starts", selection: $start, displayedComponents: isAllDay ? [.date] : [.date, .hourAndMinute])
                 DatePicker("Ends", selection: $end, in: start..., displayedComponents: isAllDay ? [.date] : [.date, .hourAndMinute])
+                RepeatPicker(selection: $repeatOption)
+            } footer: {
+                if repeatOption != item.repeatOption && item.repeatOption != .never {
+                    Text("Changing the repeat updates this and every later event in the series.")
+                }
             }
             .onChange(of: start) { oldStart, newStart in
                 // Keep the duration when the start moves, like Apple Calendar does.
@@ -139,6 +146,7 @@ struct ItemDetailView: View {
                 if hasDueDate {
                     DatePicker("Due", selection: $start, displayedComponents: includeTime ? [.date, .hourAndMinute] : [.date])
                     Toggle("Include time", isOn: $includeTime)
+                    RepeatPicker(selection: $repeatOption)
                 }
             }
         }
@@ -155,6 +163,9 @@ struct ItemDetailView: View {
             Text(item.title).font(.headline)
             if let when = whenLabel {
                 LabeledContent(isEvent ? "When" : "Due", value: when)
+            }
+            if item.repeatOption != .never {
+                LabeledContent("Repeat", value: item.repeatOption.label)
             }
         }
         if let itemNotes = item.notes, !itemNotes.isEmpty {
@@ -208,7 +219,8 @@ struct ItemDetailView: View {
                 end: eventEnd,
                 isAllDay: isAllDay,
                 calendarID: sourceID,
-                notes: notesValue
+                notes: notesValue,
+                repeatOption: repeatOption
             )
         } else {
             saved = eventKit.updateReminder(
@@ -217,7 +229,8 @@ struct ItemDetailView: View {
                 dueDate: hasDueDate ? start : nil,
                 includeTime: includeTime,
                 listID: sourceID,
-                notes: notesValue
+                notes: notesValue,
+                repeatOption: repeatOption
             )
         }
         if saved {

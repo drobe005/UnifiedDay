@@ -3,14 +3,49 @@ import SwiftUI
 /// Reminders grouped by Apple Reminders list. Dateless and future items live here;
 /// the Today tab only shows what is due.
 struct RemindersListView: View {
+    enum Sort: String, CaseIterable, Identifiable {
+        case dueDate = "Due Date"
+        case title = "Title"
+        var id: String { rawValue }
+    }
+
+    enum Filter: String, CaseIterable, Identifiable {
+        case all = "All"
+        case overdue = "Overdue"
+        case today = "Due Today"
+        case scheduled = "Scheduled"
+        case noDate = "No Date"
+        var id: String { rawValue }
+
+        func includes(_ item: TimelineItem) -> Bool {
+            switch self {
+            case .all: true
+            case .overdue: item.isOverdue
+            case .today: !item.isOverdue && item.startDate.map(Calendar.current.isDateInToday) == true
+            case .scheduled: item.startDate != nil
+            case .noDate: item.startDate == nil
+            }
+        }
+    }
+
+    private struct Group {
+        let id: String
+        let name: String
+        var items: [TimelineItem]
+    }
+
     @Environment(EventKitService.self) private var eventKit
-    @State private var grouped: [(list: String, items: [TimelineItem])] = []
+    @State private var grouped: [Group] = []
     @State private var searchText = ""
     @State private var hasLoaded = false
+    @State private var isNamingList = false
+    @State private var newListName = ""
+    @AppStorage("remindersSort") private var sort = Sort.dueDate
+    @AppStorage("remindersFilter") private var filter = Filter.all
 
     var body: some View {
         NavigationStack {
-            Group {
+            SwiftUI.Group {
                 if !eventKit.accessGranted {
                     AccessPromptView { Task { _ = await eventKit.requestAccess() } }
                 } else {
@@ -19,6 +54,14 @@ struct RemindersListView: View {
             }
             .navigationTitle("Reminders")
             .searchable(text: $searchText, prompt: "Search titles and notes")
+            .toolbar { toolbar }
+            .alert("New List", isPresented: $isNamingList) {
+                TextField("Name", text: $newListName)
+                Button("Cancel", role: .cancel) {}
+                Button("Create") { createList() }
+            } message: {
+                Text("The list is added to Apple Reminders too.")
+            }
             .task { await load() }
             .refreshable { await load() }
             .onChange(of: eventKit.changeCount) {
@@ -32,11 +75,21 @@ struct RemindersListView: View {
 
     private var reminderList: some View {
         List {
-            ForEach(filtered, id: \.list) { group in
-                Section("\(group.list) (\(group.items.count))") {
+            ForEach(filtered, id: \.id) { group in
+                Section("\(group.name) (\(group.items.count))") {
+                    if group.items.isEmpty {
+                        Text("No reminders")
+                            .foregroundStyle(.secondary)
+                    }
                     ForEach(group.items) { item in
                         TimelineRow(item: item, showsDay: true) {
                             Task { await load() }
+                        } onRemove: { removed, target in
+                            // Rescheduled reminders stay in their list, so only a delete removes one.
+                            guard target == nil else { return }
+                            for index in grouped.indices {
+                                grouped[index].items.removeAll { $0.id == removed.id }
+                            }
                         }
                     }
                 }
@@ -53,19 +106,70 @@ struct RemindersListView: View {
                     description: Text("Tap + to add one.")
                 )
             } else if filtered.isEmpty {
-                ContentUnavailableView.search(text: searchText)
+                if searchText.isEmpty {
+                    ContentUnavailableView(
+                        "Nothing \(filter.rawValue.lowercased())",
+                        systemImage: "line.3.horizontal.decrease.circle",
+                        description: Text("Try another filter.")
+                    )
+                } else {
+                    ContentUnavailableView.search(text: searchText)
+                }
             }
         }
     }
 
-    private var filtered: [(list: String, items: [TimelineItem])] {
-        guard !searchText.isEmpty else { return grouped }
-        return grouped.compactMap { group in
-            let matches = group.items.filter {
-                $0.title.localizedCaseInsensitiveContains(searchText)
-                    || ($0.notes?.localizedCaseInsensitiveContains(searchText) ?? false)
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        if eventKit.accessGranted {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("New List", systemImage: "folder.badge.plus") {
+                    newListName = ""
+                    isNamingList = true
+                }
             }
-            return matches.isEmpty ? nil : (group.list, matches)
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker("Sort by", selection: $sort) {
+                        ForEach(Sort.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    Picker("Show", selection: $filter) {
+                        ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                } label: {
+                    Image(systemName: filter == .all
+                        ? "line.3.horizontal.decrease.circle"
+                        : "line.3.horizontal.decrease.circle.fill")
+                }
+                .accessibilityLabel("Sort and filter")
+            }
+        }
+    }
+
+    /// Empty lists only show with no filter or search, so new lists appear right away.
+    private var filtered: [Group] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let showEmpty = filter == .all && query.isEmpty
+        return grouped.compactMap { group in
+            let matches = group.items
+                .filter(filter.includes)
+                .filter {
+                    query.isEmpty
+                        || $0.title.localizedCaseInsensitiveContains(query)
+                        || ($0.notes?.localizedCaseInsensitiveContains(query) ?? false)
+                }
+            let sorted = sort == .title
+                ? matches.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+                : matches
+            return sorted.isEmpty && !showEmpty ? nil : Group(id: group.id, name: group.name, items: sorted)
+        }
+    }
+
+    private func createList() {
+        let name = newListName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        if eventKit.createReminderList(named: name) {
+            Task { await load() }
         }
     }
 
@@ -82,9 +186,15 @@ struct RemindersListView: View {
             return due <= cutoff
         }
 
-        let byList = Dictionary(grouping: relevant, by: \.sourceName)
-        grouped = byList
-            .map { (list: $0.key, items: EventKitService.sortItems($0.value)) }
-            .sorted { $0.list < $1.list }
+        let byList = Dictionary(grouping: relevant, by: \.sourceID)
+        grouped = eventKit.reminderLists()
+            .map { list in
+                Group(
+                    id: list.calendarIdentifier,
+                    name: list.title,
+                    items: EventKitService.sortItems(byList[list.calendarIdentifier] ?? [])
+                )
+            }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 }

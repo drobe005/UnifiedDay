@@ -15,6 +15,8 @@ struct ComposerRequest: Identifiable {
 extension EnvironmentValues {
     /// Identifiers of items with attached notes, for the marker on timeline rows.
     @Entry var noteLinkKeys: Set<String> = []
+    /// Set by screens that have their own Save button, so the floating + steps aside.
+    @Entry var composerButtonHidden: Binding<Bool> = .constant(false)
 }
 
 @main
@@ -36,6 +38,7 @@ struct RootView: View {
     @State private var composerRequest: ComposerRequest?
     @State private var selectedTab = AppTab.today
     @State private var calendarDay = Calendar.current.startOfDay(for: .now)
+    @State private var composerButtonHidden = false
     @Environment(\.scenePhase) private var scenePhase
     @Query private var noteLinks: [NoteLink]
 
@@ -63,8 +66,9 @@ struct RootView: View {
         }
         .environment(eventKit)
         .environment(\.noteLinkKeys, noteLinkKeys)
+        .environment(\.composerButtonHidden, $composerButtonHidden)
         .overlay(alignment: .bottomTrailing) {
-            if eventKit.accessGranted || selectedTab == .notes {
+            if !composerButtonHidden && (eventKit.accessGranted || selectedTab == .notes) {
                 Button {
                     composerRequest = ComposerRequest(
                         date: composerDate,

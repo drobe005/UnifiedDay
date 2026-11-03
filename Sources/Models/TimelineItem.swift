@@ -7,6 +7,30 @@ enum TimelineItemKind: String {
     case reminder
 }
 
+/// How often an event or reminder repeats. `custom` covers rules made in Apple's
+/// apps that these choices can't describe; the app leaves those as they are.
+enum RepeatOption: String, CaseIterable, Identifiable {
+    case never, daily, weekdays, weekly, biweekly, monthly, yearly, custom
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .never: "Never"
+        case .daily: "Every day"
+        case .weekdays: "Every weekday"
+        case .weekly: "Every week"
+        case .biweekly: "Every 2 weeks"
+        case .monthly: "Every month"
+        case .yearly: "Every year"
+        case .custom: "Custom"
+        }
+    }
+
+    /// Choices offered in pickers. Custom only shows for items that already have it.
+    static let choices: [RepeatOption] = [.never, .daily, .weekdays, .weekly, .biweekly, .monthly, .yearly]
+}
+
 struct TimelineItem: Identifiable, Hashable {
     let id: String
     let kind: TimelineItemKind
@@ -32,6 +56,7 @@ struct TimelineItem: Identifiable, Hashable {
     let storeIdentifier: String
     /// calendarItemExternalIdentifier. Stays the same across devices, so notes link by it.
     let externalIdentifier: String
+    var repeatOption = RepeatOption.never
 
     var isOverdue: Bool {
         guard kind == .reminder, let due = startDate, !isCompleted else { return false }

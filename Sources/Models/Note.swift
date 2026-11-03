@@ -7,9 +7,14 @@ import SwiftData
 @Model
 final class Note {
     var title = ""
+    /// Plain text, kept for search and previews even when the note has formatting.
     var text = ""
+    /// Formatting runs from `RichText`. Nil until the note is edited with formatting.
+    var richText: Data?
     var createdAt = Date.now
     var updatedAt = Date.now
+    var isPinned = false
+    var folder: NoteFolder?
     @Relationship(deleteRule: .cascade, inverse: \NoteLink.note)
     var links: [NoteLink]? = []
 
@@ -50,6 +55,26 @@ final class Note {
     func isAttached(to item: TimelineItem) -> Bool {
         (links ?? []).contains { $0.matches(item) }
     }
+
+    /// Title and text, for sharing outside the app.
+    var shareText: String {
+        [title, text].filter { !$0.isEmpty }.joined(separator: "\n\n")
+    }
+}
+
+/// A folder of notes. Deleting a folder keeps its notes, unfiled.
+@Model
+final class NoteFolder {
+    /// Stable across devices, so a chosen folder can be remembered in settings.
+    var uuid = UUID()
+    var name = ""
+    var createdAt = Date.now
+    @Relationship(deleteRule: .nullify, inverse: \Note.folder)
+    var notes: [Note]? = []
+
+    init(name: String) {
+        self.name = name
+    }
 }
 
 /// Ties a note to an event or reminder. All occurrences of a repeating event share
@@ -86,7 +111,7 @@ enum NoteStorage {
     /// Opens saved notes. Uses memory only if the store can't open, so a storage
     /// problem shows a message instead of stopping the app from launching.
     static func makeContainer() -> (container: ModelContainer, error: String?) {
-        let schema = Schema([Note.self, NoteLink.self])
+        let schema = Schema([Note.self, NoteLink.self, NoteFolder.self])
         do {
             let configuration = ModelConfiguration(schema: schema, cloudKitDatabase: .automatic)
             return (try ModelContainer(for: schema, configurations: configuration), nil)

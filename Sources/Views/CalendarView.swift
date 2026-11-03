@@ -9,10 +9,36 @@ struct CalendarView: View {
         var id: String { rawValue }
     }
 
+    /// What the list under the grid covers.
+    enum Scope: String, CaseIterable, Identifiable {
+        case day, period, custom
+        var id: String { rawValue }
+    }
+
+    enum Kind: String, CaseIterable, Identifiable {
+        case all = "Events and Reminders"
+        case events = "Events"
+        case reminders = "Reminders"
+        var id: String { rawValue }
+
+        func includes(_ item: TimelineItem) -> Bool {
+            switch self {
+            case .all: true
+            case .events: item.kind == .event
+            case .reminders: item.kind == .reminder
+            }
+        }
+    }
+
     @Environment(EventKitService.self) private var eventKit
     @Binding var selectedDay: Date
     @AppStorage("calendarMode") private var mode = Mode.week
+    @AppStorage("calendarScope") private var scope = Scope.day
+    @AppStorage("calendarKind") private var kind = Kind.all
     @State private var items: [TimelineItem] = []
+    @State private var rangeItems: [TimelineItem] = []
+    @State private var customStart = Calendar.current.startOfDay(for: .now)
+    @State private var customEnd = Calendar.current.date(byAdding: .day, value: 6, to: Calendar.current.startOfDay(for: .now)) ?? .now
     @State private var markedDays = Set<Date>()
     @State private var hasLoaded = false
 
@@ -57,28 +83,37 @@ struct CalendarView: View {
             }
             .listRowSeparator(.hidden)
 
-            Section(dayTitle) {
-                if items.isEmpty {
-                    if hasLoaded {
-                        Text("Nothing scheduled. Tap + to add something.")
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    ForEach(items) { item in
-                        TimelineRow(item: item) {
-                            Task { await loadDay() }
-                        }
-                    }
+            Section {
+                Picker("Show", selection: $scope) {
+                    Text("Selected day").tag(Scope.day)
+                    Text(mode == .week ? "All this week" : "All this month").tag(Scope.period)
+                    Text("Custom range").tag(Scope.custom)
                 }
+                Picker("Include", selection: $kind) {
+                    ForEach(Kind.allCases) { Text($0.rawValue).tag($0) }
+                }
+                if scope == .custom {
+                    DatePicker("From", selection: $customStart, displayedComponents: .date)
+                    DatePicker("To", selection: $customEnd, in: customStart..., displayedComponents: .date)
+                }
+            }
+
+            if scope == .day {
+                daySection
+            } else {
+                rangeSections
             }
         }
         .contentMargins(.bottom, ComposerButtonClearance.height, for: .scrollContent)
         .refreshable {
-            await loadDay()
+            await reload()
             await loadMarks()
         }
         .task(id: [selectedDay.timeIntervalSince1970, Double(eventKit.changeCount)]) {
             await loadDay()
+        }
+        .task(id: rangeKey) {
+            await loadRange()
         }
         .task(id: [
             visibleDays.first?.timeIntervalSince1970 ?? 0,
@@ -86,6 +121,50 @@ struct CalendarView: View {
             Double(eventKit.changeCount),
         ]) {
             await loadMarks()
+        }
+    }
+
+    private var daySection: some View {
+        let visible = items.filter(kind.includes)
+        return Section(dayTitle) {
+            if visible.isEmpty {
+                if hasLoaded {
+                    Text("Nothing scheduled. Tap + to add something.")
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                ForEach(visible) { item in
+                    TimelineRow(item: item) {
+                        Task { await loadDay() }
+                    } onRemove: { removed, target in
+                        if let target, calendar.isDate(target.day(), inSameDayAs: selectedDay) { return }
+                        items.removeAll { $0.id == removed.id }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var rangeSections: some View {
+        let days = rangeDays
+        if days.isEmpty {
+            Section(rangeTitle) {
+                Text("Nothing scheduled in this range.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        ForEach(days, id: \.day) { group in
+            Section(title(for: group.day)) {
+                ForEach(group.items) { item in
+                    TimelineRow(item: item) {
+                        Task { await loadRange() }
+                    } onRemove: { removed, target in
+                        if let target, let range, range.contains(target.day()) { return }
+                        rangeItems.removeAll { $0.id == removed.id }
+                    }
+                }
+            }
         }
     }
 
@@ -126,9 +205,62 @@ struct CalendarView: View {
     // MARK: - Dates
 
     private var dayTitle: String {
-        if calendar.isDateInToday(selectedDay) { return "Today" }
-        if calendar.isDateInTomorrow(selectedDay) { return "Tomorrow" }
-        return selectedDay.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
+        title(for: selectedDay)
+    }
+
+    private func title(for day: Date) -> String {
+        if calendar.isDateInToday(day) { return "Today" }
+        if calendar.isDateInTomorrow(day) { return "Tomorrow" }
+        return day.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
+    }
+
+    /// The days the list covers when showing more than one day. Nil for one day.
+    private var range: Range<Date>? {
+        switch scope {
+        case .day:
+            return nil
+        case .period:
+            guard let interval = calendar.dateInterval(of: mode == .week ? .weekOfYear : .month, for: selectedDay) else {
+                return nil
+            }
+            return interval.start..<interval.end
+        case .custom:
+            let start = calendar.startOfDay(for: customStart)
+            // Capped at a year so a stray date can't load years of items.
+            let lastDay = min(max(customEnd, start), calendar.date(byAdding: .year, value: 1, to: start) ?? start)
+            guard let end = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: lastDay)) else {
+                return nil
+            }
+            return start..<end
+        }
+    }
+
+    private var rangeTitle: String {
+        guard let range else { return dayTitle }
+        let last = range.upperBound.addingTimeInterval(-1)
+        return "\(range.lowerBound.formatted(.dateTime.month(.abbreviated).day())) to \(last.formatted(.dateTime.month(.abbreviated).day()))"
+    }
+
+    private var rangeKey: [Double] {
+        guard let range else { return [0] }
+        return [range.lowerBound.timeIntervalSince1970, range.upperBound.timeIntervalSince1970, Double(eventKit.changeCount)]
+    }
+
+    /// Items grouped by day. Multi-day events show on each day they cover.
+    private var rangeDays: [(day: Date, items: [TimelineItem])] {
+        guard let range else { return [] }
+        var byDay: [Date: [TimelineItem]] = [:]
+        for item in rangeItems where kind.includes(item) {
+            guard let start = item.startDate else { continue }
+            let last = max(start, (item.endDate ?? start).addingTimeInterval(item.endDate == nil ? 0 : -1))
+            var day = calendar.startOfDay(for: max(start, range.lowerBound))
+            while day <= last, day < range.upperBound {
+                byDay[day, default: []].append(item)
+                guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
+                day = next
+            }
+        }
+        return byDay.keys.sorted().map { (day: $0, items: EventKitService.sortItems(byDay[$0] ?? [])) }
     }
 
     /// Whole weeks: seven days in week mode, every week the month touches in month mode.
@@ -170,6 +302,21 @@ struct CalendarView: View {
     }
 
     // MARK: - Loading
+
+    private func reload() async {
+        if scope == .day {
+            await loadDay()
+        } else {
+            await loadRange()
+        }
+    }
+
+    private func loadRange() async {
+        guard let range else { return }
+        let loaded = await eventKit.fetchRange(from: range.lowerBound, to: range.upperBound)
+        guard range == self.range else { return }
+        rangeItems = loaded
+    }
 
     private func loadDay() async {
         let day = selectedDay

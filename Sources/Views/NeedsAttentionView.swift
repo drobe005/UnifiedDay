@@ -51,6 +51,10 @@ struct NeedsAttentionView: View {
                 ForEach(items) { item in
                     TimelineRow(item: item) {
                         Task { await load() }
+                    } onRemove: { removed, target in
+                        // Rescheduling to today keeps the row; the reload moves it.
+                        if let target, Calendar.current.isDateInToday(target.day()) { return }
+                        self.items.removeAll { $0.id == removed.id }
                     }
                 }
             }
