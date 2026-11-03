@@ -160,21 +160,55 @@ struct RichNoteEditor: View {
             }
             .toolbar {
                 if isFocused {
-                    ToolbarItemGroup(placement: .keyboard) {
-                        formatButton("Bold", "bold", on: current.bold) { $0.bold.toggle() }
-                        formatButton("Italic", "italic", on: current.italic) { $0.italic.toggle() }
-                        formatButton("Underline", "underline", on: current.underline) { $0.underline.toggle() }
-                        formatButton("Strikethrough", "strikethrough", on: current.strikethrough) { $0.strikethrough.toggle() }
-                        formatButton("Heading", "textformat.size.larger", on: current.heading) { $0.heading.toggle() }
-                        Button("Bulleted list", systemImage: "list.bullet", action: toggleBullet)
-                        Spacer()
-                        Button("Done") { isFocused = false }
+                    // One item, so every button fits instead of spilling into a "more" menu.
+                    ToolbarItem(placement: .keyboard) {
+                        HStack(spacing: 20) {
+                            formatButton("Bold", "bold", on: current.bold) { $0.bold.toggle() }
+                            formatButton("Italic", "italic", on: current.italic) { $0.italic.toggle() }
+                            formatButton("Underline", "underline", on: current.underline) { $0.underline.toggle() }
+                            formatButton("Strikethrough", "strikethrough", on: current.strikethrough) { $0.strikethrough.toggle() }
+                            formatButton("Heading", "textformat.size.larger", on: current.heading) { $0.heading.toggle() }
+                            Button("Bulleted list", systemImage: "list.bullet", action: toggleBullet)
+                                .labelStyle(.iconOnly)
+                            Button("Done", systemImage: "keyboard.chevron.compact.down") { isFocused = false }
+                                .labelStyle(.iconOnly)
+                        }
                     }
                 }
             }
-            .onChange(of: text) {
+            .onChange(of: text) { old, new in
+                if new.characters.count == old.characters.count + 1 {
+                    continueBullet()
+                }
                 save()
             }
+    }
+
+    /// After Return on a bullet line, starts the next line with a bullet. Return on an
+    /// empty bullet removes it and ends the list, as in Apple Notes.
+    private func continueBullet() {
+        let bullet = "• "
+        guard case .insertionPoint(let point) = selection.indices(in: text),
+              point > text.startIndex else { return }
+        let newline = text.characters.index(before: point)
+        guard text.characters[newline] == "\n" else { return }
+
+        var lineStart = newline
+        while lineStart > text.startIndex {
+            let previous = text.characters.index(before: lineStart)
+            if text.characters[previous] == "\n" { break }
+            lineStart = previous
+        }
+        let line = String(text.characters[lineStart..<newline])
+        guard line.hasPrefix(bullet) else { return }
+
+        text.transform(updating: &selection) { text in
+            if line == bullet {
+                text.removeSubrange(lineStart..<point)
+            } else {
+                text.insert(AttributedString(bullet, attributes: RichTextStyle().attributes), at: point)
+            }
+        }
     }
 
     private func formatButton(
