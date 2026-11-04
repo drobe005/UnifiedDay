@@ -285,6 +285,7 @@ struct TimelineRow: View {
     var onRemove: (TimelineItem, EventKitService.RescheduleTarget?) -> Void = { _, _ in }
     @State private var showingDetail = false
     @State private var showingDatePicker = false
+    @State private var confirmingRepeatDelete = false
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.noteLinkKeys) private var noteLinkKeys
 
@@ -395,15 +396,28 @@ struct TimelineRow: View {
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            if !item.isReadOnly {
+            if item.isRepeatingEvent && !item.isReadOnly {
+                // Not marked destructive: that role slides the row away before the
+                // person picks which events to delete.
+                Button {
+                    confirmingRepeatDelete = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                .tint(.red)
+            } else if !item.isReadOnly {
                 Button(role: .destructive) {
-                    onRemove(item, nil)
-                    eventKit.delete(item)
-                    onChange()
+                    delete()
                 } label: {
                     Label("Delete", systemImage: "trash")
                 }
             }
+        }
+        .confirmationDialog("Delete this repeating event?", isPresented: $confirmingRepeatDelete, titleVisibility: .visible) {
+            Button("Delete This Event Only", role: .destructive) { delete() }
+            Button("Delete All Future Events", role: .destructive) { delete(includingFuture: true) }
+        } message: {
+            Text("It will also be removed from Apple Calendar.")
         }
         .sheet(isPresented: $showingDetail) {
             ItemDetailView(item: item, onChange: onChange)
@@ -415,6 +429,12 @@ struct TimelineRow: View {
             }
             .presentationDetents([.medium, .large])
         }
+    }
+
+    private func delete(includingFuture: Bool = false) {
+        onRemove(item, nil)
+        eventKit.delete(item, includingFuture: includingFuture)
+        onChange()
     }
 
     private func reschedule(to target: EventKitService.RescheduleTarget) {

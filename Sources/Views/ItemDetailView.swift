@@ -110,9 +110,18 @@ struct ItemDetailView: View {
                 isPresented: $confirmingDelete,
                 titleVisibility: .visible
             ) {
-                Button("Delete", role: .destructive) { delete() }
+                if item.isRepeatingEvent {
+                    Button("Delete This Event Only", role: .destructive) { delete() }
+                    Button("Delete All Future Events", role: .destructive) { delete(includingFuture: true) }
+                } else {
+                    Button("Delete", role: .destructive) { delete() }
+                }
             } message: {
-                Text(isEvent ? "It will also be removed from Apple Calendar." : "It will also be removed from Apple Reminders.")
+                if item.isRepeatingEvent {
+                    Text("This is a repeating event. It will also be removed from Apple Calendar.")
+                } else {
+                    Text(isEvent ? "It will also be removed from Apple Calendar." : "It will also be removed from Apple Reminders.")
+                }
             }
         }
     }
@@ -241,8 +250,8 @@ struct ItemDetailView: View {
         }
     }
 
-    private func delete() {
-        eventKit.delete(item)
+    private func delete(includingFuture: Bool = false) {
+        eventKit.delete(item, includingFuture: includingFuture)
         onChange()
         dismiss()
     }

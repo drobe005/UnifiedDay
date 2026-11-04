@@ -21,7 +21,8 @@ final class EventKitService {
     /// When reminders with a date but no time alert, as an hour of the day.
     private static let dateOnlyAlertHour = 9
     /// The notification center holds its delegate weakly, so keep it here.
-    private static let alertPresenter = AlertPresenter()
+    /// The app sets it as the delegate at launch, so a tapped alert isn't missed.
+    static let alertPresenter = AlertPresenter()
 
     private let store = EKEventStore()
 
@@ -32,10 +33,12 @@ final class EventKitService {
     /// Bumps whenever Calendar or Reminders data changes, inside or outside the app.
     /// Views reload when it changes so edits made in Apple's apps show up here.
     private(set) var changeCount = 0
+    /// The event or reminder behind a tapped alert. The root view shows its details.
+    var alertItemToOpen: TimelineItem?
 
     init() {
         refreshAccessStatus()
-        UNUserNotificationCenter.current().delegate = Self.alertPresenter
+        Self.alertPresenter.attach(self)
         NotificationCenter.default.addObserver(
             forName: .EKEventStoreChanged,
             object: store,
@@ -240,7 +243,11 @@ final class EventKitService {
             ending: endOfDay,
             calendars: nil
         )
-        return await fetchReminders(matching: predicate)
+        // EventKit's end bound lets in reminders due on the next day, such as a
+        // date-only reminder due at the next midnight, so check the date here too.
+        return await fetchReminders(matching: predicate).filter {
+            ($0.startDate ?? .distantFuture) < endOfDay
+        }
     }
 
     /// EventKit only offers a completion-handler fetch. Rows are built inside the
@@ -358,7 +365,11 @@ final class EventKitService {
             ending: end,
             calendars: nil
         )
-        let reminders = await fetchReminders(matching: predicate)
+        // Same end-bound check as fetchRemindersDue, so the next day's reminders stay out.
+        let reminders = await fetchReminders(matching: predicate).filter {
+            guard let due = $0.startDate else { return false }
+            return due >= start && due < end
+        }
         return Self.sortItems(fetchEvents(start: start, end: end) + reminders)
     }
 
@@ -510,6 +521,7 @@ final class EventKitService {
             content.body = "Due today"
         }
         let fields = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+        content.userInfo = AlertTarget(item: item).userInfo
         let trigger = UNCalendarNotificationTrigger(dateMatching: fields, repeats: false)
         return UNNotificationRequest(identifier: item.id, content: content, trigger: trigger)
     }
@@ -709,11 +721,32 @@ final class EventKitService {
         )
     }
 
-    /// event(withIdentifier:) returns the first occurrence of a repeating event,
-    /// so look up the exact occurrence by its date when we have one.
+    /// Opens the details of the event or reminder behind a tapped alert.
+    func open(_ target: AlertTarget) {
+        switch target.kind {
+        case .reminder:
+            if let reminder = store.calendarItem(withIdentifier: target.storeID) as? EKReminder {
+                alertItemToOpen = Self.timelineItem(from: reminder)
+                return
+            }
+        case .event:
+            if let event = event(storeID: target.storeID, occurrence: target.occurrence) {
+                alertItemToOpen = timelineItem(from: event)
+                return
+            }
+        }
+        lastError = "That item no longer exists. It may have been deleted in Apple's apps."
+    }
+
     private func event(for item: TimelineItem) -> EKEvent? {
         guard item.kind == .event else { return nil }
-        if let occurrence = item.occurrenceDate,
+        return event(storeID: item.storeIdentifier, occurrence: item.occurrenceDate)
+    }
+
+    /// event(withIdentifier:) returns the first occurrence of a repeating event,
+    /// so look up the exact occurrence by its date when we have one.
+    private func event(storeID: String, occurrence: Date?) -> EKEvent? {
+        if let occurrence,
            let dayAfter = Calendar.current.date(byAdding: .day, value: 1, to: occurrence) {
             let predicate = store.predicateForEvents(
                 withStart: occurrence.addingTimeInterval(-1),
@@ -721,15 +754,17 @@ final class EventKitService {
                 calendars: nil
             )
             if let match = store.events(matching: predicate).first(where: {
-                $0.eventIdentifier == item.storeIdentifier && $0.occurrenceDate == occurrence
+                $0.eventIdentifier == storeID && $0.occurrenceDate == occurrence
             }) {
                 return match
             }
         }
-        return store.event(withIdentifier: item.storeIdentifier)
+        return store.event(withIdentifier: storeID)
     }
 
-    func delete(_ item: TimelineItem) {
+    /// Deletes an item. For a repeating event, `includingFuture` also deletes every
+    /// later occurrence; otherwise only this one goes.
+    func delete(_ item: TimelineItem, includingFuture: Bool = false) {
         do {
             switch item.kind {
             case .event:
@@ -737,7 +772,7 @@ final class EventKitService {
                     lastError = "That event no longer exists. It may have been deleted in Calendar."
                     return
                 }
-                try store.remove(event, span: .thisEvent, commit: true)
+                try store.remove(event, span: includingFuture ? .futureEvents : .thisEvent, commit: true)
             case .reminder:
                 guard let reminder = store.calendarItem(withIdentifier: item.storeIdentifier) as? EKReminder else {
                     lastError = "That reminder no longer exists. It may have been deleted in Reminders."
@@ -773,12 +808,72 @@ final class EventKitService {
     }
 }
 
-/// Shows alerts as banners while the app is open. iOS hides them otherwise.
-final class AlertPresenter: NSObject, UNUserNotificationCenterDelegate, Sendable {
-    func userNotificationCenter(
+/// What an alert points at, saved in the alert so a tap can open the item.
+struct AlertTarget: Sendable {
+    let kind: TimelineItemKind
+    let storeID: String
+    /// The occurrence of a repeating event. Nil for reminders.
+    let occurrence: Date?
+
+    init(item: TimelineItem) {
+        kind = item.kind
+        storeID = item.storeIdentifier
+        occurrence = item.occurrenceDate
+    }
+
+    init?(userInfo: [AnyHashable: Any]) {
+        guard let kindValue = userInfo["kind"] as? String,
+              let kind = TimelineItemKind(rawValue: kindValue),
+              let storeID = userInfo["storeID"] as? String
+        else { return nil }
+        self.kind = kind
+        self.storeID = storeID
+        occurrence = (userInfo["occurrence"] as? Double).map(Date.init(timeIntervalSince1970:))
+    }
+
+    var userInfo: [String: Any] {
+        var info: [String: Any] = ["kind": kind.rawValue, "storeID": storeID]
+        if let occurrence { info["occurrence"] = occurrence.timeIntervalSince1970 }
+        return info
+    }
+}
+
+/// Shows alerts as banners while the app is open, since iOS hides them otherwise,
+/// and opens the item when an alert is tapped.
+@MainActor
+final class AlertPresenter: NSObject, UNUserNotificationCenterDelegate {
+    private weak var service: EventKitService?
+    /// A tap that arrived before the service existed, such as one that launched the app.
+    private var pending: AlertTarget?
+
+    func attach(_ service: EventKitService) {
+        self.service = service
+        if let pending {
+            self.pending = nil
+            service.open(pending)
+        }
+    }
+
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
         [.banner, .list, .sound]
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+              let target = AlertTarget(userInfo: response.notification.request.content.userInfo)
+        else { return }
+        await MainActor.run {
+            if let service {
+                service.open(target)
+            } else {
+                pending = target
+            }
+        }
     }
 }

@@ -58,6 +58,11 @@ struct TimelineItem: Identifiable, Hashable {
     let externalIdentifier: String
     var repeatOption = RepeatOption.never
 
+    /// A repeating event, where deleting asks whether to remove later ones too.
+    var isRepeatingEvent: Bool {
+        kind == .event && repeatOption != .never
+    }
+
     var isOverdue: Bool {
         guard kind == .reminder, let due = startDate, !isCompleted else { return false }
         return due < Calendar.current.startOfDay(for: Date())

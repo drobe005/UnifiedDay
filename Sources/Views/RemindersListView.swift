@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 /// Reminders grouped by Apple Reminders list. Dateless and future items live here;
@@ -35,6 +36,7 @@ struct RemindersListView: View {
     }
 
     @Environment(EventKitService.self) private var eventKit
+    @Query private var notes: [Note]
     @State private var grouped: [Group] = []
     @State private var searchText = ""
     @State private var hasLoaded = false
@@ -150,13 +152,16 @@ struct RemindersListView: View {
     private var filtered: [Group] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let showEmpty = filter == .all && query.isEmpty
+        // Reminders with an attached UnifiedDay note that matches, not just Apple notes.
+        let noteLinks = query.isEmpty ? [] : notes.filter { $0.matches(query) }.flatMap { $0.links ?? [] }
         return grouped.compactMap { group in
             let matches = group.items
                 .filter(filter.includes)
-                .filter {
+                .filter { item in
                     query.isEmpty
-                        || $0.title.localizedCaseInsensitiveContains(query)
-                        || ($0.notes?.localizedCaseInsensitiveContains(query) ?? false)
+                        || item.title.localizedCaseInsensitiveContains(query)
+                        || (item.notes?.localizedCaseInsensitiveContains(query) ?? false)
+                        || noteLinks.contains { $0.matches(item) }
                 }
             let sorted = sort == .title
                 ? matches.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }

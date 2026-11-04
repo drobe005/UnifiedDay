@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import UserNotifications
 
 enum AppTab {
     case today, calendar, reminders, notes, settings
@@ -22,6 +23,11 @@ extension EnvironmentValues {
 @main
 struct UnifiedDayApp: App {
     private let storage = NoteStorage.makeContainer()
+
+    init() {
+        // Set before launch finishes, so iOS hands over an alert tap that opened the app.
+        UNUserNotificationCenter.current().delegate = EventKitService.alertPresenter
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -96,6 +102,10 @@ struct RootView: View {
             }
         }
         .animation(.default, value: eventKit.lastError)
+        .sheet(item: $eventKit.alertItemToOpen) { item in
+            ItemDetailView(item: item) {}
+                .environment(eventKit)
+        }
         .sheet(item: $composerRequest) { request in
             ComposerView(initialDate: request.date, initialKind: request.kind)
                 .environment(eventKit)
