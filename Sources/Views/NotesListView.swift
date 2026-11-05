@@ -270,19 +270,28 @@ struct NotesListView: View {
         modelContext.saveNotes(reportingTo: eventKit)
     }
 
+    /// One half of the Notes and Folders toggle. The active one is tinted.
+    private func viewButton(_ title: String, systemImage: String, showsFolders target: Bool) -> some View {
+        let isActive = showsFolders == target
+        return Button {
+            showsFolders = target
+        } label: {
+            Label(title, systemImage: systemImage)
+                .symbolVariant(isActive ? .fill : .none)
+        }
+        .labelStyle(.iconOnly)
+        // Toolbar buttons take their color from tint, not foregroundStyle.
+        .tint(isActive ? Color.accentColor : Color.secondary)
+        .accessibilityAddTraits(isActive ? .isSelected : [])
+    }
+
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Picker("View", selection: $showsFolders) {
-                Image(systemName: "note.text")
-                    .accessibilityLabel("Notes")
-                    .tag(false)
-                Image(systemName: "folder")
-                    .accessibilityLabel("Folders")
-                    .tag(true)
-            }
-            .pickerStyle(.segmented)
-            .fixedSize()
+        // Two plain buttons, not a segmented picker: the toolbar already draws a
+        // glass capsule, and a picker inside it looked doubled and animated unevenly.
+        ToolbarItemGroup(placement: .topBarLeading) {
+            viewButton("Notes", systemImage: "note.text", showsFolders: false)
+            viewButton("Folders", systemImage: "folder", showsFolders: true)
         }
         ToolbarItem(placement: .topBarTrailing) {
             if showsFolders {
