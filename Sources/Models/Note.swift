@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import UIKit
 
 /// A note kept by UnifiedDay, not by Apple's apps. Stored with SwiftData and synced
 /// through the user's private iCloud. CloudKit needs a default value on every
@@ -17,6 +18,8 @@ final class Note {
     var folder: NoteFolder?
     @Relationship(deleteRule: .cascade, inverse: \NoteLink.note)
     var links: [NoteLink]? = []
+    @Relationship(deleteRule: .cascade, inverse: \NoteImage.note)
+    var images: [NoteImage]? = []
 
     init(title: String = "", text: String = "") {
         self.title = title
@@ -33,6 +36,11 @@ final class Note {
     var preview: String {
         guard title.isEmpty else { return text }
         return text.split(whereSeparator: \.isNewline).dropFirst().joined(separator: " ")
+    }
+
+    /// Images in the order they were added.
+    var sortedImages: [NoteImage] {
+        (images ?? []).sorted { $0.createdAt < $1.createdAt }
     }
 
     var attachedLinks: [NoteLink] {
@@ -59,6 +67,36 @@ final class Note {
     /// Title and text, for sharing outside the app.
     var shareText: String {
         [title, text].filter { !$0.isEmpty }.joined(separator: "\n\n")
+    }
+}
+
+/// A photo or pasted image in a note. Kept outside the main store, and synced
+/// through iCloud as a file.
+@Model
+final class NoteImage {
+    @Attribute(.externalStorage) var data: Data?
+    var createdAt = Date.now
+    var note: Note?
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    /// Images this wide or tall are shrunk before saving, to keep iCloud use down.
+    private static let maxDimension: CGFloat = 2048
+
+    /// The image as a JPEG no larger than `maxDimension`. Nil if it isn't an image.
+    static func preparedData(from data: Data) -> Data? {
+        guard let image = UIImage(data: data) else { return nil }
+        let size = image.size
+        let scale = min(1, maxDimension / max(size.width, size.height))
+        let target = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let resized = UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: target))
+        }
+        return resized.jpegData(compressionQuality: 0.8)
     }
 }
 
@@ -111,7 +149,7 @@ enum NoteStorage {
     /// Opens saved notes. Uses memory only if the store can't open, so a storage
     /// problem shows a message instead of stopping the app from launching.
     static func makeContainer() -> (container: ModelContainer, error: String?) {
-        let schema = Schema([Note.self, NoteLink.self, NoteFolder.self])
+        let schema = Schema([Note.self, NoteLink.self, NoteFolder.self, NoteImage.self])
         do {
             let configuration = ModelConfiguration(schema: schema, cloudKitDatabase: .automatic)
             return (try ModelContainer(for: schema, configurations: configuration), nil)

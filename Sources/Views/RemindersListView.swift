@@ -6,6 +6,7 @@ import SwiftUI
 struct RemindersListView: View {
     enum Sort: String, CaseIterable, Identifiable {
         case dueDate = "Due Date"
+        case created = "Date Created"
         case title = "Title"
         var id: String { rawValue }
     }
@@ -163,9 +164,11 @@ struct RemindersListView: View {
                         || (item.notes?.localizedCaseInsensitiveContains(query) ?? false)
                         || noteLinks.contains { $0.matches(item) }
                 }
-            let sorted = sort == .title
-                ? matches.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-                : matches
+            let sorted: [TimelineItem] = switch sort {
+            case .dueDate: matches
+            case .created: matches.sorted { ($0.createdDate ?? .distantPast) > ($1.createdDate ?? .distantPast) }
+            case .title: matches.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            }
             return sorted.isEmpty && !showEmpty ? nil : Group(id: group.id, name: group.name, items: sorted)
         }
     }

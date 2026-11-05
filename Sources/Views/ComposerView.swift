@@ -20,7 +20,7 @@ struct ComposerView: View {
     @State private var attachments: [TimelineItem] = []
     @State private var showingItemPicker = false
     @State private var repeatOption = RepeatOption.never
-    @State private var folderID: UUID?
+    @State private var folder: NoteFolder?
     @Query(sort: \NoteFolder.name) private var folders: [NoteFolder]
     @AppStorage(NotesListView.folderKey) private var viewedFolderID = ""
     @FocusState private var titleFocused: Bool
@@ -62,6 +62,13 @@ struct ComposerView: View {
                 Section {
                     TextField("Title", text: $title)
                         .focused($titleFocused)
+                    if kind != .note, let found = TypedDate.find(in: title) {
+                        Button {
+                            useTypedDate(found)
+                        } label: {
+                            Label("Set date: \(found.label)", systemImage: "calendar.badge.plus")
+                        }
+                    }
                 }
 
                 if kind == .note {
@@ -72,15 +79,8 @@ struct ComposerView: View {
                         Text("Saved in UnifiedDay and your iCloud. Not visible in Apple's apps.")
                     }
 
-                    if !folders.isEmpty {
-                        Section {
-                            Picker("Folder", selection: $folderID) {
-                                Text("None").tag(UUID?.none)
-                                ForEach(folders) { folder in
-                                    Text(folder.name).tag(Optional(folder.uuid))
-                                }
-                            }
-                        }
+                    Section {
+                        NoteFolderPicker(selection: $folder)
                     }
 
                     Section("Attached to") {
@@ -138,7 +138,7 @@ struct ComposerView: View {
                 selectedCalendarID = eventKit.preferredEventCalendar()?.calendarIdentifier
                 selectedListID = eventKit.preferredReminderList()?.calendarIdentifier
                 // New notes go in the folder being viewed on the Notes tab.
-                folderID = folders.first { $0.uuid.uuidString == viewedFolderID }?.uuid
+                folder = folders.first { $0.uuid.uuidString == viewedFolderID }
                 titleFocused = true
             }
             .toolbar {
@@ -151,6 +151,13 @@ struct ComposerView: View {
                 }
             }
         }
+    }
+
+    /// Moves a date typed in the title into the date fields, and takes it out of the title.
+    private func useTypedDate(_ found: TypedDate) {
+        date = found.date
+        includeTime = found.hasTime
+        title = found.remainingTitle
     }
 
     private func isAttached(_ item: TimelineItem) -> Bool {
@@ -171,7 +178,7 @@ struct ComposerView: View {
         if kind == .note {
             let note = Note(title: trimmed, text: notes)
             modelContext.insert(note)
-            note.folder = folders.first { $0.uuid == folderID }
+            note.folder = folder
             note.attach([attachedItem].compactMap { $0 } + attachments, in: modelContext)
             modelContext.saveNotes(reportingTo: eventKit)
         } else if kind == .event {
@@ -214,5 +221,52 @@ struct RepeatPicker: View {
                 Text(RepeatOption.custom.label).tag(RepeatOption.custom)
             }
         }
+    }
+}
+
+/// A date and time typed into a title, like "Call Sam tomorrow at 3pm".
+struct TypedDate {
+    let date: Date
+    /// False for a day with no time, like "on Friday".
+    let hasTime: Bool
+    /// The title with the date words taken out.
+    let remainingTitle: String
+
+    var label: String {
+        let day: String
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) {
+            day = "Today"
+        } else if calendar.isDateInTomorrow(date) {
+            day = "Tomorrow"
+        } else {
+            day = date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+        }
+        return hasTime ? "\(day), \(date.formatted(date: .omitted, time: .shortened))" : day
+    }
+
+    /// Words that only tie the date to the title, dropped along with the date.
+    private static let joiningWords: Set<String> = ["at", "on", "by", "for", "due"]
+
+    static func find(in title: String) -> TypedDate? {
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue),
+              let match = detector.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)),
+              let date = match.date,
+              let range = Range(match.range, in: title)
+        else { return nil }
+
+        let typed = title[range].lowercased()
+        // The detector picks noon when no time is given, so look for a time in the words.
+        let hasTime = typed.contains(where: \.isNumber) && (typed.contains(":") || typed.contains("am") || typed.contains("pm"))
+            || typed.contains("noon") || typed.contains("midnight")
+
+        var words = (title[..<range.lowerBound] + " " + title[range.upperBound...])
+            .split(separator: " ")
+            .map(String.init)
+        while let last = words.last, joiningWords.contains(last.lowercased()) {
+            words.removeLast()
+        }
+        let remaining = words.joined(separator: " ")
+        return TypedDate(date: date, hasTime: hasTime, remainingTitle: remaining.isEmpty ? title : remaining)
     }
 }

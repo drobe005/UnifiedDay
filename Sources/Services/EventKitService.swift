@@ -35,6 +35,8 @@ final class EventKitService {
     private(set) var changeCount = 0
     /// The event or reminder behind a tapped alert. The root view shows its details.
     var alertItemToOpen: TimelineItem?
+    /// The last change a shake can undo. Nil when there's nothing to undo.
+    private(set) var lastUndo: UndoAction?
 
     init() {
         refreshAccessStatus()
@@ -297,7 +299,8 @@ final class EventKitService {
             occurrenceDate: nil,
             storeIdentifier: reminder.calendarItemIdentifier,
             externalIdentifier: reminder.calendarItemExternalIdentifier ?? "",
-            repeatOption: repeatOption(for: reminder)
+            repeatOption: repeatOption(for: reminder),
+            createdDate: reminder.creationDate
         )
     }
 
@@ -538,11 +541,14 @@ final class EventKitService {
         reminder.isCompleted = completed
         do {
             try store.save(reminder, commit: true)
+            lastUndo = UndoAction(change: .completion(completed), item: item)
         } catch {
             lastError = error.localizedDescription
         }
     }
 
+    /// Returns the new event, or nil and sets `lastError` on failure.
+    @discardableResult
     func createEvent(
         title: String,
         start: Date,
@@ -551,7 +557,7 @@ final class EventKitService {
         calendar: EKCalendar?,
         notes: String?,
         repeatOption: RepeatOption = .never
-    ) {
+    ) -> TimelineItem? {
         let event = EKEvent(eventStore: store)
         event.title = title
         event.startDate = start
@@ -562,12 +568,16 @@ final class EventKitService {
         Self.applyRepeat(repeatOption, to: event)
         do {
             try store.save(event, span: .thisEvent, commit: true)
+            return timelineItem(from: event)
         } catch {
             lastError = error.localizedDescription
+            return nil
         }
     }
 
     /// Repeats need a due date, so `repeatOption` is ignored without one.
+    /// Returns the new reminder, or nil and sets `lastError` on failure.
+    @discardableResult
     func createReminder(
         title: String,
         dueDate: Date?,
@@ -575,7 +585,7 @@ final class EventKitService {
         list: EKCalendar?,
         notes: String?,
         repeatOption: RepeatOption = .never
-    ) {
+    ) -> TimelineItem? {
         let reminder = EKReminder(eventStore: store)
         reminder.title = title
         reminder.notes = notes
@@ -586,8 +596,10 @@ final class EventKitService {
         reminder.calendar = list ?? preferredReminderList()
         do {
             try store.save(reminder, commit: true)
+            return Self.timelineItem(from: reminder)
         } catch {
             lastError = error.localizedDescription
+            return nil
         }
     }
 
@@ -712,13 +724,17 @@ final class EventKitService {
             let time = calendar.dateComponents([.hour, .minute], from: oldDue)
             newDue = calendar.date(bySettingHour: time.hour ?? 9, minute: time.minute ?? 0, second: 0, of: newDue) ?? newDue
         }
-        return updateReminder(
+        let moved = updateReminder(
             item,
             title: item.title,
             dueDate: newDue,
             includeTime: item.hasDueTime && item.startDate != nil,
             notes: item.notes
         )
+        if moved {
+            lastUndo = UndoAction(change: .reschedule, item: item)
+        }
+        return moved
     }
 
     /// Opens the details of the event or reminder behind a tapped alert.
@@ -773,16 +789,65 @@ final class EventKitService {
                     return
                 }
                 try store.remove(event, span: includingFuture ? .futureEvents : .thisEvent, commit: true)
+                // A repeating event can't be put back as it was, so it isn't offered.
+                lastUndo = item.isRepeatingEvent ? nil : UndoAction(change: .delete, item: item)
             case .reminder:
                 guard let reminder = store.calendarItem(withIdentifier: item.storeIdentifier) as? EKReminder else {
                     lastError = "That reminder no longer exists. It may have been deleted in Reminders."
                     return
                 }
                 try store.remove(reminder, commit: true)
+                lastUndo = UndoAction(change: .delete, item: item)
             }
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    // MARK: - Undo
+
+    /// Reverses `lastUndo`. A deleted item comes back as a new copy with the same
+    /// title, date, list or calendar, notes, and repeat, so this returns the old
+    /// and new versions for moving attached notes over. Nil otherwise.
+    @discardableResult
+    func undo() -> (old: TimelineItem, new: TimelineItem)? {
+        guard let action = lastUndo else { return nil }
+        let item = action.item
+        var restored: (old: TimelineItem, new: TimelineItem)?
+        switch action.change {
+        case .completion(let completed):
+            setReminderCompleted(item, completed: !completed)
+        case .reschedule:
+            updateReminder(item, title: item.title, dueDate: item.startDate, includeTime: item.hasDueTime, notes: item.notes)
+        case .delete:
+            let repeatOption = item.repeatOption == .custom ? .never : item.repeatOption
+            let copy: TimelineItem?
+            switch item.kind {
+            case .reminder:
+                copy = createReminder(
+                    title: item.title,
+                    dueDate: item.startDate,
+                    includeTime: item.hasDueTime,
+                    list: store.calendar(withIdentifier: item.sourceID),
+                    notes: item.notes,
+                    repeatOption: repeatOption
+                )
+            case .event:
+                let start = item.startDate ?? .now
+                copy = createEvent(
+                    title: item.title,
+                    start: start,
+                    end: item.endDate ?? start,
+                    isAllDay: item.isAllDay,
+                    calendar: store.calendar(withIdentifier: item.sourceID),
+                    notes: item.notes,
+                    repeatOption: repeatOption
+                )
+            }
+            restored = copy.map { (old: item, new: $0) }
+        }
+        lastUndo = nil
+        return restored
     }
 
     // MARK: - Sorting (matches spec section 9)
@@ -804,6 +869,27 @@ final class EventKitService {
             case (nil, .some): return false
             default: return $0.title.localizedStandardCompare($1.title) == .orderedAscending
             }
+        }
+    }
+}
+
+/// A change that shaking the phone can undo, with the item as it was before.
+struct UndoAction {
+    enum Change {
+        /// The reminder's new completed state.
+        case completion(Bool)
+        case reschedule
+        case delete
+    }
+
+    let change: Change
+    let item: TimelineItem
+
+    var title: String {
+        switch change {
+        case .completion(let completed): completed ? "Undo Complete" : "Undo Mark Not Done"
+        case .reschedule: "Undo Move"
+        case .delete: "Undo Delete"
         }
     }
 }

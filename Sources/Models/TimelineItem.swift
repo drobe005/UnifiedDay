@@ -57,6 +57,8 @@ struct TimelineItem: Identifiable, Hashable {
     /// calendarItemExternalIdentifier. Stays the same across devices, so notes link by it.
     let externalIdentifier: String
     var repeatOption = RepeatOption.never
+    /// When the item was made. Lets undated reminders sort newest first.
+    var createdDate: Date?
 
     /// A repeating event, where deleting asks whether to remove later ones too.
     var isRepeatingEvent: Bool {

@@ -2,8 +2,60 @@ import SwiftData
 import SwiftUI
 import UserNotifications
 
-enum AppTab {
+enum AppTab: String, CaseIterable, Identifiable {
     case today, calendar, reminders, notes, settings
+
+    /// UserDefaults key for the order set in Settings, saved as comma-separated names.
+    static let orderKey = "tabOrder"
+    /// Tabs that can be reordered. Settings always stays last.
+    static let movable: [AppTab] = [.today, .calendar, .reminders, .notes]
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .today: "Today"
+        case .calendar: "Calendar"
+        case .reminders: "Reminders"
+        case .notes: "Notes"
+        case .settings: "Settings"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .today: "calendar.day.timeline.left"
+        case .calendar: "calendar"
+        case .reminders: "checklist"
+        case .notes: "note.text"
+        case .settings: "gear"
+        }
+    }
+
+    /// The saved order, with any tab it's missing added at the end.
+    static func order(from saved: String) -> [AppTab] {
+        var order: [AppTab] = []
+        for name in saved.split(separator: ",") {
+            if let tab = AppTab(rawValue: String(name)), movable.contains(tab), !order.contains(tab) {
+                order.append(tab)
+            }
+        }
+        return order + movable.filter { !order.contains($0) }
+    }
+}
+
+extension Notification.Name {
+    static let deviceDidShake = Notification.Name("deviceDidShake")
+}
+
+extension UIWindow {
+    /// SwiftUI has no shake gesture, so the window passes shakes on for undo.
+    open override func motionEnded(_ motion: UIEvent.EventSubtype, with event: UIEvent?) {
+        super.motionEnded(motion, with: event)
+        if motion == .motionShake {
+            NotificationCenter.default.post(name: .deviceDidShake, object: nil)
+        }
+    }
 }
 
 /// One press of the + button, carrying what the composer should start on.
@@ -45,7 +97,11 @@ struct RootView: View {
     @State private var selectedTab = AppTab.today
     @State private var calendarDay = Calendar.current.startOfDay(for: .now)
     @State private var composerButtonHidden = false
+    @State private var showingUndo = false
+    @State private var openedFirstTab = false
+    @AppStorage(AppTab.orderKey) private var tabOrder = ""
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.modelContext) private var modelContext
     @Query private var noteLinks: [NoteLink]
 
     private var noteLinkKeys: Set<String> {
@@ -54,21 +110,15 @@ struct RootView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            TodayView()
-                .tabItem { Label("Today", systemImage: "calendar.day.timeline.left") }
-                .tag(AppTab.today)
-            CalendarView(selectedDay: $calendarDay)
-                .tabItem { Label("Calendar", systemImage: "calendar") }
-                .tag(AppTab.calendar)
-            RemindersListView()
-                .tabItem { Label("Reminders", systemImage: "checklist") }
-                .tag(AppTab.reminders)
-            NotesListView()
-                .tabItem { Label("Notes", systemImage: "note.text") }
-                .tag(AppTab.notes)
-            SettingsView()
-                .tabItem { Label("Settings", systemImage: "gear") }
-                .tag(AppTab.settings)
+            // Tab with a value, not tabItem: the older API kept stale icons after a reorder.
+            ForEach(AppTab.order(from: tabOrder)) { tab in
+                Tab(tab.title, systemImage: tab.systemImage, value: tab) {
+                    screen(for: tab)
+                }
+            }
+            Tab(AppTab.settings.title, systemImage: AppTab.settings.systemImage, value: AppTab.settings) {
+                SettingsView()
+            }
         }
         .environment(eventKit)
         .environment(\.noteLinkKeys, noteLinkKeys)
@@ -114,6 +164,22 @@ struct RootView: View {
             if let storageError {
                 eventKit.lastError = storageError
             }
+            // The app opens on the first tab in the order chosen in Settings.
+            if !openedFirstTab {
+                openedFirstTab = true
+                selectedTab = AppTab.order(from: tabOrder).first ?? .today
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .deviceDidShake)) { _ in
+            // The note editor keeps iOS's own text undo, so shakes there are left alone.
+            guard eventKit.lastUndo != nil, !composerButtonHidden else { return }
+            showingUndo = true
+        }
+        .alert(eventKit.lastUndo?.title ?? "Undo", isPresented: $showingUndo, presenting: eventKit.lastUndo) { _ in
+            Button("Cancel", role: .cancel) {}
+            Button("Undo") { undo() }
+        } message: { action in
+            Text(action.item.title)
         }
         .task(id: eventKit.changeCount) {
             await eventKit.refreshAlerts()
@@ -123,6 +189,28 @@ struct RootView: View {
                 eventKit.refreshOnForeground()
             }
         }
+    }
+
+    @ViewBuilder
+    private func screen(for tab: AppTab) -> some View {
+        switch tab {
+        case .today: TodayView()
+        case .calendar: CalendarView(selectedDay: $calendarDay)
+        case .reminders: RemindersListView()
+        case .notes: NotesListView()
+        case .settings: SettingsView()
+        }
+    }
+
+    /// Undoes the last change. A deleted item comes back as a new copy, so its
+    /// attached notes move over to the copy.
+    private func undo() {
+        guard let restored = eventKit.undo() else { return }
+        for link in noteLinks where link.matches(restored.old) {
+            link.externalID = restored.new.externalIdentifier
+            link.localID = restored.new.storeIdentifier
+        }
+        modelContext.saveNotes(reportingTo: eventKit)
     }
 
     /// New items start on the day selected in Calendar. Other days default to 9 AM.

@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftData
 import SwiftUI
 
@@ -10,8 +11,8 @@ struct NoteEditorView: View {
 
     let note: Note
 
-    @Query(sort: \NoteFolder.name) private var folders: [NoteFolder]
     @State private var showingItemPicker = false
+    @State private var viewingImage: NoteImage?
     @State private var confirmingDelete = false
     /// Deleting waits until the screen closes, so it never shows a deleted note.
     @State private var deleteOnClose = false
@@ -31,13 +32,10 @@ struct NoteEditorView: View {
                 Text("Saved in UnifiedDay and your iCloud. Not visible in Apple's apps.")
             }
 
+            NoteImagesSection(note: note, viewing: $viewingImage)
+
             Section {
-                Picker("Folder", selection: folderSelection) {
-                    Text("None").tag(UUID?.none)
-                    ForEach(folders) { folder in
-                        Text(folder.name).tag(Optional(folder.uuid))
-                    }
-                }
+                NoteFolderPicker(selection: folderSelection)
             }
 
             Section("Attached to") {
@@ -90,6 +88,11 @@ struct NoteEditorView: View {
                 modelContext.saveNotes(reportingTo: eventKit)
             }
         }
+        .sheet(item: $viewingImage) { image in
+            NoteImageViewer(image: image) {
+                NoteImagesSection.delete(image, from: note, in: modelContext, reportingTo: eventKit)
+            }
+        }
         .onDisappear {
             composerButtonHidden.wrappedValue = false
             if deleteOnClose {
@@ -99,11 +102,11 @@ struct NoteEditorView: View {
         }
     }
 
-    private var folderSelection: Binding<UUID?> {
+    private var folderSelection: Binding<NoteFolder?> {
         Binding {
-            note.folder?.uuid
-        } set: { uuid in
-            note.folder = folders.first { $0.uuid == uuid }
+            note.folder
+        } set: { folder in
+            note.folder = folder
         }
     }
 
@@ -119,7 +122,7 @@ struct NoteEditorView: View {
 }
 
 /// The note's body with formatting. Buttons above the keyboard apply bold, italic,
-/// underline, strikethrough, headings, and bullets to the selection.
+/// underline, strikethrough, headings, bullets, and checklists.
 @available(iOS 26.0, *)
 struct RichNoteEditor: View {
     let note: Note
@@ -170,6 +173,9 @@ struct RichNoteEditor: View {
                             formatButton("Heading", "textformat.size.larger", on: current.heading) { $0.heading.toggle() }
                             Button("Bulleted list", systemImage: "list.bullet", action: toggleBullet)
                                 .labelStyle(.iconOnly)
+                            Button("Checklist", systemImage: "checklist", action: toggleChecklist)
+                                .labelStyle(.iconOnly)
+                                .accessibilityHint("Adds a checkbox, or checks and unchecks it")
                             Button("Done", systemImage: "keyboard.chevron.compact.down") { isFocused = false }
                                 .labelStyle(.iconOnly)
                         }
@@ -178,37 +184,95 @@ struct RichNoteEditor: View {
             }
             .onChange(of: text) { old, new in
                 if new.characters.count == old.characters.count + 1 {
-                    continueBullet()
+                    continueList()
                 }
                 save()
             }
     }
 
-    /// After Return on a bullet line, starts the next line with a bullet. Return on an
-    /// empty bullet removes it and ends the list, as in Apple Notes.
-    private func continueBullet() {
-        let bullet = "• "
+    private static let bullet = "• "
+    private static let openBox = "☐ "
+    private static let checkedBox = "☑ "
+    private static let listPrefixes = [bullet, openBox, checkedBox]
+
+    /// After Return on a bullet or checklist line, starts the next line the same way,
+    /// with an unchecked box for checklists. Return on an empty one removes it and
+    /// ends the list, as in Apple Notes.
+    private func continueList() {
         guard case .insertionPoint(let point) = selection.indices(in: text),
               point > text.startIndex else { return }
         let newline = text.characters.index(before: point)
         guard text.characters[newline] == "\n" else { return }
 
-        var lineStart = newline
-        while lineStart > text.startIndex {
-            let previous = text.characters.index(before: lineStart)
-            if text.characters[previous] == "\n" { break }
-            lineStart = previous
+        let start = Self.lineStart(in: text, at: newline)
+        let line = String(text.characters[start..<newline])
+        guard let prefix = Self.listPrefixes.first(where: line.hasPrefix) else { return }
+
+        let startOffset = text.characters.distance(from: text.startIndex, to: start)
+        if line == prefix {
+            text.removeSubrange(start..<point)
+            placeCursor(atOffset: startOffset)
+        } else {
+            let next = prefix == Self.bullet ? Self.bullet : Self.openBox
+            let pointOffset = text.characters.distance(from: text.startIndex, to: point)
+            text.insert(AttributedString(next, attributes: RichTextStyle().attributes), at: point)
+            placeCursor(atOffset: pointOffset + next.count)
         }
-        let line = String(text.characters[lineStart..<newline])
-        guard line.hasPrefix(bullet) else { return }
+    }
+
+    /// Puts the cursor after a list marker the app just added. Left alone, the
+    /// cursor stays in front of inserted text and typing would land before the marker.
+    private func placeCursor(atOffset offset: Int) {
+        let clamped = min(max(offset, 0), text.characters.count)
+        selection = AttributedTextSelection(insertionPoint: text.characters.index(text.startIndex, offsetBy: clamped))
+    }
+
+    /// The start of the line that holds `index`.
+    private static func lineStart(in text: AttributedString, at index: AttributedString.Index) -> AttributedString.Index {
+        var start = index
+        while start > text.startIndex {
+            let previous = text.characters.index(before: start)
+            if text.characters[previous] == "\n" { break }
+            start = previous
+        }
+        return start
+    }
+
+    /// Swaps the list marker at the start of the cursor's line: `change` gets the
+    /// current marker (nil for none) and returns the new one (nil removes it).
+    private func changeLinePrefix(_ change: (String?) -> String?) {
+        let index: AttributedString.Index
+        let isCursor: Bool
+        switch selection.indices(in: text) {
+        case .insertionPoint(let point):
+            index = point
+            isCursor = true
+        case .ranges(let ranges):
+            index = ranges.ranges.first?.lowerBound ?? text.startIndex
+            isCursor = false
+        }
+        let start = Self.lineStart(in: text, at: index)
+        let startOffset = text.characters.distance(from: text.startIndex, to: start)
+        let cursorOffset = text.characters.distance(from: text.startIndex, to: index)
+        let current = Self.listPrefixes.first { text.characters[start...].starts(with: $0) }
+        let replacement = change(current)
 
         text.transform(updating: &selection) { text in
-            if line == bullet {
-                text.removeSubrange(lineStart..<point)
-            } else {
-                text.insert(AttributedString(bullet, attributes: RichTextStyle().attributes), at: point)
+            if let current {
+                let end = text.characters.index(start, offsetBy: current.count)
+                text.removeSubrange(start..<end)
+            }
+            if let replacement {
+                text.insert(AttributedString(replacement, attributes: RichTextStyle().attributes), at: start)
             }
         }
+
+        // Keep the cursor on the same spot in the line's text, never in front of the marker.
+        guard isCursor else { return }
+        let removed = current?.count ?? 0
+        let added = replacement?.count ?? 0
+        let textOffset = max(cursorOffset - startOffset - removed, 0)
+        placeCursor(atOffset: startOffset + added + textOffset)
     }
 
     private func formatButton(
@@ -238,28 +302,15 @@ struct RichNoteEditor: View {
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 
-    /// Adds or removes a bullet at the start of the line holding the cursor.
+    /// Adds or removes a bullet at the start of the cursor's line. A checklist line
+    /// turns into a bullet.
     private func toggleBullet() {
-        let bullet = "• "
-        text.transform(updating: &selection) { text in
-            let index: AttributedString.Index
-            switch selection.indices(in: text) {
-            case .insertionPoint(let point): index = point
-            case .ranges(let ranges): index = ranges.ranges.first?.lowerBound ?? text.startIndex
-            }
-            var lineStart = index
-            while lineStart > text.startIndex {
-                let previous = text.characters.index(before: lineStart)
-                if text.characters[previous] == "\n" { break }
-                lineStart = previous
-            }
-            if text.characters[lineStart...].starts(with: bullet) {
-                let end = text.characters.index(lineStart, offsetBy: bullet.count)
-                text.removeSubrange(lineStart..<end)
-            } else {
-                text.insert(AttributedString(bullet, attributes: RichTextStyle().attributes), at: lineStart)
-            }
-        }
+        changeLinePrefix { $0 == Self.bullet ? nil : Self.bullet }
+    }
+
+    /// Adds a checkbox to the cursor's line, or checks and unchecks the one there.
+    private func toggleChecklist() {
+        changeLinePrefix { $0 == Self.openBox ? Self.checkedBox : Self.openBox }
     }
 
     private func save() {
@@ -541,5 +592,205 @@ struct NotePickerView: View {
         note.attach([item], in: modelContext)
         modelContext.saveNotes(reportingTo: eventKit)
         dismiss()
+    }
+}
+
+/// Folder choice for a note, with a way to make a new folder on the spot.
+struct NoteFolderPicker: View {
+    @Environment(EventKitService.self) private var eventKit
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \NoteFolder.name) private var folders: [NoteFolder]
+
+    @Binding var selection: NoteFolder?
+
+    @State private var isNaming = false
+    @State private var name = ""
+
+    var body: some View {
+        Picker("Folder", selection: $selection) {
+            Text("None").tag(NoteFolder?.none)
+            ForEach(folders) { folder in
+                Text(folder.name).tag(Optional(folder))
+            }
+        }
+        Button("New Folder", systemImage: "folder.badge.plus") {
+            name = ""
+            isNaming = true
+        }
+        .alert("New Folder", isPresented: $isNaming) {
+            TextField("Name", text: $name)
+            Button("Cancel", role: .cancel) {}
+            Button("Create") { create() }
+        } message: {
+            Text("The note moves into the new folder.")
+        }
+    }
+
+    private func create() {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let folder = NoteFolder(name: trimmed)
+        modelContext.insert(folder)
+        modelContext.saveNotes(reportingTo: eventKit)
+        selection = folder
+    }
+}
+
+/// An image from the clipboard, for the Paste button.
+struct PastedImage: Transferable {
+    let data: Data
+
+    static var transferRepresentation: some TransferRepresentation {
+        DataRepresentation(importedContentType: .image) { PastedImage(data: $0) }
+    }
+}
+
+/// A note's images, with buttons to add a photo or paste an image. Images sit
+/// under the text, not inside it.
+struct NoteImagesSection: View {
+    @Environment(EventKitService.self) private var eventKit
+    @Environment(\.modelContext) private var modelContext
+
+    let note: Note
+    /// The image open full screen. The editor screen shows it, since a sheet
+    /// attached inside a form section doesn't open reliably.
+    @Binding var viewing: NoteImage?
+
+    @State private var pickedPhotos: [PhotosPickerItem] = []
+
+    private let columns = [GridItem(.adaptive(minimum: 90), spacing: 8)]
+
+    var body: some View {
+        Section("Images") {
+            let images = note.sortedImages
+            if !images.isEmpty {
+                LazyVGrid(columns: columns, spacing: 8) {
+                    ForEach(images) { image in
+                        Button {
+                            viewing = image
+                        } label: {
+                            NoteImageThumbnail(image: image)
+                                .contentShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        // Borderless, so each thumbnail gets its own tap inside the form row.
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Image")
+                        .accessibilityHint("Opens the image")
+                        .contextMenu {
+                            Button("Delete", systemImage: "trash", role: .destructive) { delete(image) }
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            PhotosPicker(selection: $pickedPhotos, maxSelectionCount: 10, matching: .images) {
+                Label("Add Photos", systemImage: "photo.on.rectangle")
+            }
+            PasteButton(payloadType: PastedImage.self) { pasted in
+                add(pasted.map(\.data))
+            }
+            .labelStyle(.titleAndIcon)
+        }
+        .onChange(of: pickedPhotos) { _, items in
+            guard !items.isEmpty else { return }
+            Task {
+                var loaded: [Data] = []
+                for item in items {
+                    if let data = try? await item.loadTransferable(type: Data.self) {
+                        loaded.append(data)
+                    }
+                }
+                add(loaded)
+                pickedPhotos = []
+            }
+        }
+    }
+
+    private func add(_ items: [Data]) {
+        let prepared = items.compactMap(NoteImage.preparedData(from:))
+        guard !prepared.isEmpty else {
+            if !items.isEmpty { eventKit.lastError = "That image couldn't be added." }
+            return
+        }
+        for data in prepared {
+            let image = NoteImage(data: data)
+            modelContext.insert(image)
+            image.note = note
+        }
+        note.updatedAt = .now
+        modelContext.saveNotes(reportingTo: eventKit)
+    }
+
+    private func delete(_ image: NoteImage) {
+        Self.delete(image, from: note, in: modelContext, reportingTo: eventKit)
+    }
+
+    static func delete(_ image: NoteImage, from note: Note, in context: ModelContext, reportingTo eventKit: EventKitService) {
+        context.delete(image)
+        note.updatedAt = .now
+        context.saveNotes(reportingTo: eventKit)
+    }
+}
+
+/// A square preview of a note image. Shrinks the image once, not on every redraw.
+struct NoteImageThumbnail: View {
+    let image: NoteImage
+
+    @State private var preview: UIImage?
+
+    var body: some View {
+        Rectangle()
+            .fill(.quaternary)
+            .aspectRatio(1, contentMode: .fit)
+            .overlay {
+                if let preview {
+                    Image(uiImage: preview)
+                        .resizable()
+                        .scaledToFill()
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .task(id: image.persistentModelID) {
+                preview = image.data
+                    .flatMap(UIImage.init(data:))?
+                    .preparingThumbnail(of: CGSize(width: 240, height: 240))
+            }
+    }
+}
+
+/// One note image, full screen.
+struct NoteImageViewer: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let image: NoteImage
+    let onDelete: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            SwiftUI.Group {
+                if let data = image.data, let uiImage = UIImage(data: data) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFit()
+                        .accessibilityLabel("Image")
+                } else {
+                    ContentUnavailableView("Image not available", systemImage: "photo")
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .navigationTitle("Image")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+                ToolbarItem(placement: .destructiveAction) {
+                    Button("Delete", systemImage: "trash", role: .destructive) {
+                        onDelete()
+                        dismiss()
+                    }
+                }
+            }
+        }
     }
 }

@@ -102,6 +102,12 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Tabs") {
+                    NavigationLink("Tab Order") {
+                        TabOrderView()
+                    }
+                }
+
                 Section("Integrations") {
                     integrationRow(name: "Google", detail: "Meet links and Drive attachments", comingSoon: true)
                     integrationRow(name: "Zoom", detail: "Create and join meetings", comingSoon: true)
@@ -147,5 +153,34 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+/// Reorders the tabs at the bottom. Settings always stays last.
+struct TabOrderView: View {
+    @AppStorage(AppTab.orderKey) private var saved = ""
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(AppTab.order(from: saved)) { tab in
+                    Label(tab.title, systemImage: tab.systemImage)
+                }
+                .onMove { from, to in
+                    var order = AppTab.order(from: saved)
+                    order.move(fromOffsets: from, toOffset: to)
+                    saved = order.map(\.rawValue).joined(separator: ",")
+                }
+            } footer: {
+                Text("Drag to reorder. The app opens on the first tab. Settings always stays last.")
+            }
+            Section {
+                Button("Reset to Default") { saved = "" }
+                    .disabled(saved.isEmpty)
+            }
+        }
+        .environment(\.editMode, .constant(.active))
+        .navigationTitle("Tab Order")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

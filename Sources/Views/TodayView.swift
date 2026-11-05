@@ -305,8 +305,7 @@ struct TimelineRow: View {
         HStack(spacing: 12) {
             if item.kind == .reminder {
                 Button {
-                    eventKit.setReminderCompleted(item, completed: !item.isCompleted)
-                    onChange()
+                    toggleCompleted()
                 } label: {
                     Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
                         .foregroundStyle(item.isCompleted ? .green : .secondary)
@@ -413,6 +412,34 @@ struct TimelineRow: View {
                 }
             }
         }
+        .contextMenu {
+            Button("Open", systemImage: "info.circle") { showingDetail = true }
+            if item.kind == .reminder && !item.isReadOnly {
+                Button(item.isCompleted ? "Mark Not Done" : "Mark Done",
+                       systemImage: item.isCompleted ? "circle" : "checkmark.circle") {
+                    toggleCompleted()
+                }
+                if !item.isCompleted {
+                    Section("Move to") {
+                        if item.isOverdue {
+                            Button("Today", systemImage: "sun.max") { reschedule(to: .today) }
+                        }
+                        Button("Tomorrow", systemImage: "sunrise") { reschedule(to: .tomorrow) }
+                        Button("Next week", systemImage: "calendar.badge.clock") { reschedule(to: .nextWeek) }
+                        Button("Pick date", systemImage: "calendar") { showingDatePicker = true }
+                    }
+                }
+            }
+            if !item.isReadOnly {
+                Button("Delete", systemImage: "trash", role: .destructive) {
+                    if item.isRepeatingEvent {
+                        confirmingRepeatDelete = true
+                    } else {
+                        delete()
+                    }
+                }
+            }
+        }
         .confirmationDialog("Delete this repeating event?", isPresented: $confirmingRepeatDelete, titleVisibility: .visible) {
             Button("Delete This Event Only", role: .destructive) { delete() }
             Button("Delete All Future Events", role: .destructive) { delete(includingFuture: true) }
@@ -429,6 +456,11 @@ struct TimelineRow: View {
             }
             .presentationDetents([.medium, .large])
         }
+    }
+
+    private func toggleCompleted() {
+        eventKit.setReminderCompleted(item, completed: !item.isCompleted)
+        onChange()
     }
 
     private func delete(includingFuture: Bool = false) {
