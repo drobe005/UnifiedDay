@@ -110,7 +110,6 @@ struct RootView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            // Tab with a value, not tabItem: the older API kept stale icons after a reorder.
             ForEach(AppTab.order(from: tabOrder)) { tab in
                 Tab(tab.title, systemImage: tab.systemImage, value: tab) {
                     screen(for: tab)
@@ -120,11 +119,16 @@ struct RootView: View {
                 SettingsView()
             }
         }
+        // iOS keeps some old tab icons when tabs swap places, even with the Tab API.
+        // A new identity per order rebuilds the tab bar so every icon matches its title.
+        .id(tabOrder)
         .environment(eventKit)
         .environment(\.noteLinkKeys, noteLinkKeys)
         .environment(\.composerButtonHidden, $composerButtonHidden)
         .overlay(alignment: .bottomTrailing) {
-            if !composerButtonHidden && (eventKit.accessGranted || selectedTab == .notes) {
+            // Hidden on Settings: nothing to add there, and it covered the last rows.
+            if !composerButtonHidden && selectedTab != .settings
+                && (eventKit.accessGranted || selectedTab == .notes) {
                 Button {
                     composerRequest = ComposerRequest(
                         date: composerDate,
