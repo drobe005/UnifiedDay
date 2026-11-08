@@ -603,9 +603,9 @@ final class EventKitService {
         }
     }
 
-    /// Saves edits to an event. Only this occurrence changes for repeating events,
-    /// unless the repeat changes: then this and every later occurrence change.
-    /// Returns false and sets `lastError` on failure.
+    /// Saves edits to an event. For a repeating event, only this occurrence changes
+    /// unless `includingFuture` is true or the repeat changes: then this and every
+    /// later occurrence change. Returns false and sets `lastError` on failure.
     @discardableResult
     func updateEvent(
         _ item: TimelineItem,
@@ -615,7 +615,8 @@ final class EventKitService {
         isAllDay: Bool,
         calendarID: String? = nil,
         notes: String?,
-        repeatOption: RepeatOption? = nil
+        repeatOption: RepeatOption? = nil,
+        includingFuture: Bool = false
     ) -> Bool {
         guard let event = event(for: item) else {
             lastError = "That event no longer exists. It may have been deleted in Calendar."
@@ -629,7 +630,7 @@ final class EventKitService {
         if let calendarID, calendarID != item.sourceID, let calendar = store.calendar(withIdentifier: calendarID) {
             event.calendar = calendar
         }
-        var span = EKSpan.thisEvent
+        var span: EKSpan = includingFuture ? .futureEvents : .thisEvent
         if let repeatOption, repeatOption != item.repeatOption {
             Self.applyRepeat(repeatOption, to: event)
             span = .futureEvents
@@ -713,11 +714,14 @@ final class EventKitService {
         }
     }
 
-    /// Moves a reminder to a new day, keeping its time of day when it has one.
-    /// Reminders without a due date get a date-only due date.
+    /// Moves an event or reminder to a new day, keeping its time of day when it has one.
+    /// Reminders without a due date get a date-only due date. Events keep their length,
+    /// and only this occurrence of a repeating event moves.
     @discardableResult
     func reschedule(_ item: TimelineItem, to target: RescheduleTarget) -> Bool {
-        guard item.kind == .reminder else { return false }
+        if item.kind == .event {
+            return rescheduleEvent(item, to: target)
+        }
         let calendar = Calendar.current
         var newDue = target.day(calendar: calendar)
         if item.hasDueTime, let oldDue = item.startDate {
@@ -734,6 +738,29 @@ final class EventKitService {
         if moved {
             lastUndo = UndoAction(change: .reschedule, item: item)
         }
+        return moved
+    }
+
+    private func rescheduleEvent(_ item: TimelineItem, to target: RescheduleTarget) -> Bool {
+        guard let oldStart = item.startDate else { return false }
+        let calendar = Calendar.current
+        let day = target.day(calendar: calendar)
+        let time = calendar.dateComponents([.hour, .minute], from: oldStart)
+        let newStart = item.isAllDay
+            ? day
+            : calendar.date(bySettingHour: time.hour ?? 9, minute: time.minute ?? 0, second: 0, of: day) ?? day
+        let length = max((item.endDate ?? oldStart).timeIntervalSince(oldStart), 0)
+        let moved = updateEvent(
+            item,
+            title: item.title,
+            start: newStart,
+            end: newStart.addingTimeInterval(length),
+            isAllDay: item.isAllDay,
+            notes: item.notes
+        )
+        // A moved occurrence of a repeating event can't be found again reliably, so
+        // undo is only offered for single events, like delete.
+        lastUndo = moved && !item.isRepeatingEvent ? UndoAction(change: .reschedule, item: item) : nil
         return moved
     }
 
@@ -818,7 +845,11 @@ final class EventKitService {
         case .completion(let completed):
             setReminderCompleted(item, completed: !completed)
         case .reschedule:
-            updateReminder(item, title: item.title, dueDate: item.startDate, includeTime: item.hasDueTime, notes: item.notes)
+            if item.kind == .event, let start = item.startDate {
+                updateEvent(item, title: item.title, start: start, end: item.endDate ?? start, isAllDay: item.isAllDay, notes: item.notes)
+            } else {
+                updateReminder(item, title: item.title, dueDate: item.startDate, includeTime: item.hasDueTime, notes: item.notes)
+            }
         case .delete:
             let repeatOption = item.repeatOption == .custom ? .never : item.repeatOption
             let copy: TimelineItem?

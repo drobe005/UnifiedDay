@@ -13,6 +13,9 @@ struct NoteEditorView: View {
 
     @State private var showingItemPicker = false
     @State private var viewingImage: NoteImage?
+    /// Opened from an attached row. The sheet lives here because a sheet on a
+    /// Form row often never appears.
+    @State private var openingItem: TimelineItem?
     @State private var confirmingDelete = false
     /// Deleting waits until the screen closes, so it never shows a deleted note.
     @State private var deleteOnClose = false
@@ -40,7 +43,7 @@ struct NoteEditorView: View {
 
             Section("Attached to") {
                 ForEach(note.attachedLinks) { link in
-                    AttachedItemRow(link: link)
+                    AttachedItemRow(link: link) { openingItem = $0 }
                 }
                 Button("Attach Events or Reminders") {
                     showingItemPicker = true
@@ -87,6 +90,9 @@ struct NoteEditorView: View {
                 note.attach(items, in: modelContext)
                 modelContext.saveNotes(reportingTo: eventKit)
             }
+        }
+        .sheet(item: $openingItem) { item in
+            ItemDetailView(item: item) {}
         }
         .sheet(item: $viewingImage) { image in
             NoteImageViewer(image: image) {
@@ -333,33 +339,30 @@ struct AttachedItemRow: View {
     @Environment(\.modelContext) private var modelContext
 
     let link: NoteLink
+    let onOpen: (TimelineItem) -> Void
 
     @State private var item: TimelineItem?
-    @State private var showingDetail = false
 
     var body: some View {
-        Button {
-            showingDetail = true
-        } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item?.title ?? link.title)
-                    .foregroundStyle(item == nil ? .secondary : .primary)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+        // A tap gesture, not a Button: a plain Button in this Form row didn't respond.
+        VStack(alignment: .leading, spacing: 2) {
+            Text(item?.title ?? link.title)
+                .foregroundStyle(item == nil ? .secondary : .primary)
+            Text(subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
-        .buttonStyle(.plain)
-        .disabled(item == nil)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if let item { onOpen(item) }
+        }
+        .accessibilityAddTraits(item == nil ? [] : .isButton)
+        .accessibilityHint(item == nil ? "" : "Opens details")
         .swipeActions(edge: .trailing) {
             Button("Detach", role: .destructive) {
                 modelContext.delete(link)
                 modelContext.saveNotes(reportingTo: eventKit)
-            }
-        }
-        .sheet(isPresented: $showingDetail) {
-            if let item {
-                ItemDetailView(item: item) { resolve() }
             }
         }
         .task(id: eventKit.changeCount) {

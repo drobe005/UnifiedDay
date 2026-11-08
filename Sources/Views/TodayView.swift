@@ -293,6 +293,12 @@ struct TimelineRow: View {
         noteLinkKeys.contains(item.externalIdentifier) || noteLinkKeys.contains(item.storeIdentifier)
     }
 
+    /// Events and reminders can both move to another day. Completed reminders and
+    /// items from read-only calendars or lists can't.
+    private var canMove: Bool {
+        !item.isReadOnly && !item.isCompleted && (item.kind == .reminder || item.startDate != nil)
+    }
+
     private var trailingLabel: String? {
         if showsDay || item.isOverdue, let day = item.dayLabel {
             if item.isAllDay { return "\(day), all day" }
@@ -362,7 +368,7 @@ struct TimelineRow: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Opens details")
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            if item.kind == .reminder && !item.isReadOnly && !item.isCompleted {
+            if canMove {
                 Button {
                     reschedule(to: .tomorrow)
                 } label: {
@@ -419,15 +425,15 @@ struct TimelineRow: View {
                        systemImage: item.isCompleted ? "circle" : "checkmark.circle") {
                     toggleCompleted()
                 }
-                if !item.isCompleted {
-                    Section("Move to") {
-                        if item.isOverdue {
-                            Button("Today", systemImage: "sun.max") { reschedule(to: .today) }
-                        }
-                        Button("Tomorrow", systemImage: "sunrise") { reschedule(to: .tomorrow) }
-                        Button("Next week", systemImage: "calendar.badge.clock") { reschedule(to: .nextWeek) }
-                        Button("Pick date", systemImage: "calendar") { showingDatePicker = true }
+            }
+            if canMove {
+                Section("Move to") {
+                    if item.isOverdue {
+                        Button("Today", systemImage: "sun.max") { reschedule(to: .today) }
                     }
+                    Button("Tomorrow", systemImage: "sunrise") { reschedule(to: .tomorrow) }
+                    Button("Next week", systemImage: "calendar.badge.clock") { reschedule(to: .nextWeek) }
+                    Button("Pick date", systemImage: "calendar") { showingDatePicker = true }
                 }
             }
             if !item.isReadOnly {
@@ -476,7 +482,7 @@ struct TimelineRow: View {
     }
 }
 
-/// Picks a day to move a reminder to. Keeps the reminder's time of day.
+/// Picks a day to move an event or reminder to. Keeps its time of day.
 struct RescheduleDateSheet: View {
     @Environment(\.dismiss) private var dismiss
     let item: TimelineItem

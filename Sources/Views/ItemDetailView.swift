@@ -20,6 +20,7 @@ struct ItemDetailView: View {
     @State private var repeatOption: RepeatOption
     @State private var saveError: String?
     @State private var confirmingDelete = false
+    @State private var choosingSaveSpan = false
     @State private var showingNewNote = false
     @State private var showingNotePicker = false
 
@@ -104,6 +105,16 @@ struct ItemDetailView: View {
             }
             .sheet(isPresented: $showingNotePicker) {
                 NotePickerView(item: item)
+            }
+            .confirmationDialog(
+                "Save changes to this repeating event?",
+                isPresented: $choosingSaveSpan,
+                titleVisibility: .visible
+            ) {
+                Button("Save for This Event Only") { save() }
+                Button("Save for All Future Events") { save(includingFuture: true) }
+            } message: {
+                Text("Changes will also show in Apple Calendar.")
             }
             .confirmationDialog(
                 "Delete this \(isEvent ? "event" : "reminder")?",
@@ -206,7 +217,7 @@ struct ItemDetailView: View {
                 Button("Cancel") { dismiss() }
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button("Save") { save() }
+                Button("Save") { saveTapped() }
                     .disabled(trimmedTitle.isEmpty)
             }
         }
@@ -214,7 +225,18 @@ struct ItemDetailView: View {
 
     // MARK: - Actions
 
-    private func save() {
+    /// A repeating event asks whether the edit is for this occurrence or every later one,
+    /// like Apple Calendar. Changing the repeat always changes every later one, so it
+    /// doesn't ask then.
+    private func saveTapped() {
+        if item.isRepeatingEvent && repeatOption == item.repeatOption {
+            choosingSaveSpan = true
+        } else {
+            save()
+        }
+    }
+
+    private func save(includingFuture: Bool = false) {
         let notesValue = notes.isEmpty ? nil : notes
         let saved: Bool
         if isEvent {
@@ -229,7 +251,8 @@ struct ItemDetailView: View {
                 isAllDay: isAllDay,
                 calendarID: sourceID,
                 notes: notesValue,
-                repeatOption: repeatOption
+                repeatOption: repeatOption,
+                includingFuture: includingFuture
             )
         } else {
             saved = eventKit.updateReminder(
