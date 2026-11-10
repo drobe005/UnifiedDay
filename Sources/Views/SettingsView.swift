@@ -11,6 +11,7 @@ struct SettingsView: View {
     @AppStorage(EventKitService.alertLeadMinutesKey) private var alertLeadMinutes = EventKitService.defaultAlertLeadMinutes
 
     @State private var bannersOn: Bool?
+    @State private var showingFeedbackAddress = false
 
     private let alertLeadOptions = [0, 5, 10, 15, 30, 60]
 
@@ -114,16 +115,38 @@ struct SettingsView: View {
                     integrationRow(name: "Notion", detail: "Two-way task sync", comingSoon: true)
                 }
 
-                Section("About") {
-                    HStack {
-                        Text("Version")
-                        Spacer()
-                        Text("0.1 (MVP)")
-                            .foregroundStyle(.secondary)
+                Section {
+                    Button {
+                        sendFeedback()
+                    } label: {
+                        Label("Send Feedback", systemImage: "envelope")
                     }
+                    LabeledContent("Version", value: Feedback.appVersion)
+                } header: {
+                    Text("About")
+                } footer: {
+                    Text("Report a bug or share an idea. Your app version and iPhone model are added to the email for you.")
                 }
             }
             .navigationTitle("Settings")
+            .alert("No email app set up", isPresented: $showingFeedbackAddress) {
+                Button("Copy Address") { UIPasteboard.general.string = Feedback.address }
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Send your feedback to \(Feedback.address).")
+            }
+        }
+    }
+
+    /// Opens the person's default email app with a filled-in draft. If no email
+    /// app can open it, shows the address instead so feedback is never lost.
+    private func sendFeedback() {
+        guard let url = Feedback.mailURL() else {
+            showingFeedbackAddress = true
+            return
+        }
+        UIApplication.shared.open(url) { opened in
+            if !opened { showingFeedbackAddress = true }
         }
     }
 
