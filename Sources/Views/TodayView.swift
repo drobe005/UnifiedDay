@@ -285,7 +285,7 @@ struct TimelineRow: View {
     var onRemove: (TimelineItem, EventKitService.RescheduleTarget?) -> Void = { _, _ in }
     @State private var showingDetail = false
     @State private var showingDatePicker = false
-    @State private var confirmingRepeatDelete = false
+    @State private var confirmingDelete = false
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.noteLinkKeys) private var noteLinkKeys
 
@@ -297,6 +297,11 @@ struct TimelineRow: View {
     /// items from read-only calendars or lists can't.
     private var canMove: Bool {
         !item.isReadOnly && !item.isCompleted && (item.kind == .reminder || item.startDate != nil)
+    }
+
+    private var deleteTitle: String {
+        if item.isRepeatingEvent { return "Delete this repeating event?" }
+        return "Delete \"\(item.title)\"?"
     }
 
     private var trailingLabel: String? {
@@ -401,21 +406,16 @@ struct TimelineRow: View {
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            if item.isRepeatingEvent && !item.isReadOnly {
-                // Not marked destructive: that role slides the row away before the
-                // person picks which events to delete.
+            if !item.isReadOnly {
+                // Asks first, so a stray swipe can't remove something from Apple
+                // Calendar or Reminders. Not marked destructive: that role slides the
+                // row away before the person answers.
                 Button {
-                    confirmingRepeatDelete = true
+                    confirmingDelete = true
                 } label: {
                     Label("Delete", systemImage: "trash")
                 }
                 .tint(.red)
-            } else if !item.isReadOnly {
-                Button(role: .destructive) {
-                    delete()
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                }
             }
         }
         .contextMenu {
@@ -438,19 +438,19 @@ struct TimelineRow: View {
             }
             if !item.isReadOnly {
                 Button("Delete", systemImage: "trash", role: .destructive) {
-                    if item.isRepeatingEvent {
-                        confirmingRepeatDelete = true
-                    } else {
-                        delete()
-                    }
+                    confirmingDelete = true
                 }
             }
         }
-        .confirmationDialog("Delete this repeating event?", isPresented: $confirmingRepeatDelete, titleVisibility: .visible) {
-            Button("Delete This Event Only", role: .destructive) { delete() }
-            Button("Delete All Future Events", role: .destructive) { delete(includingFuture: true) }
+        .confirmationDialog(deleteTitle, isPresented: $confirmingDelete, titleVisibility: .visible) {
+            if item.isRepeatingEvent {
+                Button("Delete This Event Only", role: .destructive) { delete() }
+                Button("Delete All Future Events", role: .destructive) { delete(includingFuture: true) }
+            } else {
+                Button("Delete", role: .destructive) { delete() }
+            }
         } message: {
-            Text("It will also be removed from Apple Calendar.")
+            Text("It will also be removed from Apple \(item.kind == .reminder ? "Reminders" : "Calendar").")
         }
         .sheet(isPresented: $showingDetail) {
             ItemDetailView(item: item, onChange: onChange)
