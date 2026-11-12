@@ -79,10 +79,9 @@ struct RemindersListView: View {
     private var reminderList: some View {
         List {
             ForEach(filtered, id: \.id) { group in
-                Section("\(group.name) (\(group.items.count))") {
+                Section {
                     if group.items.isEmpty {
-                        Text("No reminders")
-                            .foregroundStyle(.secondary)
+                        UDEmptyListRow(text: "No reminders")
                     }
                     ForEach(group.items) { item in
                         TimelineRow(item: item, showsDay: true) {
@@ -95,28 +94,33 @@ struct RemindersListView: View {
                             }
                         }
                     }
+                } header: {
+                    UDListHeader(title: group.name, count: group.items.count)
                 }
             }
         }
+        .listStyle(.plain)
+        .listSectionSpacing(0)
+        .udScreenBackground()
         .contentMargins(.bottom, ComposerButtonClearance.height, for: .scrollContent)
         .overlay {
             if !hasLoaded {
                 ProgressView()
             } else if grouped.isEmpty {
-                ContentUnavailableView(
-                    "No open reminders",
-                    systemImage: "checklist",
-                    description: Text("Tap + to add one.")
-                )
+                UDEmptyState(icon: "checklist", title: "No open reminders", message: "Tap + to add one.")
             } else if filtered.isEmpty {
                 if searchText.isEmpty {
-                    ContentUnavailableView(
-                        "Nothing \(filter.rawValue.lowercased())",
-                        systemImage: "line.3.horizontal.decrease.circle",
-                        description: Text("Try another filter.")
+                    UDEmptyState(
+                        icon: "line.3.horizontal.decrease",
+                        title: "Nothing \(filter.rawValue.lowercased())",
+                        message: "Try another filter."
                     )
                 } else {
-                    ContentUnavailableView.search(text: searchText)
+                    UDEmptyState(
+                        icon: "magnifyingglass",
+                        title: "No results",
+                        message: "Nothing matches \"\(searchText)\"."
+                    )
                 }
             }
         }

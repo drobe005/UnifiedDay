@@ -72,9 +72,10 @@ struct ItemDetailView: View {
                     }
                 } footer: {
                     if item.isReadOnly {
-                        Text("This \(isEvent ? "calendar" : "list") is read-only, so this item can't be changed here.")
+                        UDFormFooter(text: "This \(isEvent ? "calendar" : "list") is read-only, so this item can't be changed here.")
                     }
                 }
+                .udFormRow()
 
                 AttachedNotesSection(
                     item: item,
@@ -85,18 +86,25 @@ struct ItemDetailView: View {
                 if let saveError {
                     Section {
                         Label(saveError, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.red)
+                            .foregroundStyle(UD.errorFg)
                     }
+                    .listRowBackground(UD.errorBg)
                 }
 
                 if !item.isReadOnly {
+                    // In the footer, not a row, so the form's rounded row shape doesn't clip it.
                     Section {
+                    } footer: {
                         Button("Delete \(isEvent ? "Event" : "Reminder")", role: .destructive) {
                             confirmingDelete = true
                         }
+                        .buttonStyle(UDDestructiveButtonStyle())
+                        .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
                     }
                 }
             }
+            .udFormBackground()
+            .tint(UD.brand600)
             .navigationTitle(isEvent ? "Event" : "Reminder")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
@@ -142,8 +150,12 @@ struct ItemDetailView: View {
     @ViewBuilder
     private var editableContent: some View {
         Section {
-            TextField("Title", text: $title)
+            TextField("Add a title", text: $title)
+                .foregroundStyle(UD.textPrimary)
+        } header: {
+            UDFormHeader(title: "Title")
         }
+        .udFormRow()
 
         if isEvent {
             Section {
@@ -153,9 +165,10 @@ struct ItemDetailView: View {
                 RepeatPicker(selection: $repeatOption)
             } footer: {
                 if repeatOption != item.repeatOption && item.repeatOption != .never {
-                    Text("Changing the repeat updates this and every later event in the series.")
+                    UDFormFooter(text: "Changing the repeat updates this and every later event in the series.")
                 }
             }
+            .udFormRow()
             .onChange(of: start) { oldStart, newStart in
                 // Keep the duration when the start moves, like Apple Calendar does.
                 end = newStart.addingTimeInterval(max(end.timeIntervalSince(oldStart), 0))
@@ -169,18 +182,24 @@ struct ItemDetailView: View {
                     RepeatPicker(selection: $repeatOption)
                 }
             }
+            .udFormRow()
         }
 
-        Section("Apple notes") {
+        Section {
             TextField("Optional", text: $notes, axis: .vertical)
-                .lineLimit(3...10)
+                .lineLimit(4...10)
+        } header: {
+            UDFormHeader(title: "Apple notes")
         }
+        .udFormRow()
     }
 
     @ViewBuilder
     private var readOnlyContent: some View {
         Section {
-            Text(item.title).font(.headline)
+            Text(item.title)
+                .font(.title3.weight(.bold))
+                .foregroundStyle(UD.textPrimary)
             if let when = whenLabel {
                 LabeledContent(isEvent ? "When" : "Due", value: when)
             }
@@ -188,10 +207,15 @@ struct ItemDetailView: View {
                 LabeledContent("Repeat", value: item.repeatOption.label)
             }
         }
+        .udFormRow()
         if let itemNotes = item.notes, !itemNotes.isEmpty {
-            Section("Apple notes") {
+            Section {
                 Text(itemNotes)
+                    .foregroundStyle(UD.textSecondary)
+            } header: {
+                UDFormHeader(title: "Apple notes")
             }
+            .udFormRow()
         }
     }
 
@@ -210,14 +234,14 @@ struct ItemDetailView: View {
     private var toolbar: some ToolbarContent {
         if item.isReadOnly {
             ToolbarItem(placement: .confirmationAction) {
-                Button("Done") { dismiss() }
+                UDToolbarConfirmButton(title: "Done") { dismiss() }
             }
         } else {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { dismiss() }
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button("Save") { saveTapped() }
+                UDToolbarConfirmButton { saveTapped() }
                     .disabled(trimmedTitle.isEmpty)
             }
         }

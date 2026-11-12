@@ -51,39 +51,54 @@ struct ComposerView: View {
         NavigationStack {
             Form {
                 if attachedItem == nil {
-                    Picker("Type", selection: $kind) {
-                        Text("Reminder").tag(DraftKind.reminder)
-                        Text("Event").tag(DraftKind.event)
-                        Text("Note").tag(DraftKind.note)
+                    // Sits on the background, not in a card, like the Figma design.
+                    Section {
+                        Picker("Type", selection: $kind) {
+                            Text("Reminder").tag(DraftKind.reminder)
+                            Text("Event").tag(DraftKind.event)
+                            Text("Note").tag(DraftKind.note)
+                        }
+                        .pickerStyle(.segmented)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
                     }
-                    .pickerStyle(.segmented)
                 }
 
                 Section {
-                    TextField("Title", text: $title)
+                    TextField("Add a title", text: $title)
+                        .font(kind == .note ? .title3.weight(.bold) : .body)
+                        .foregroundStyle(UD.textPrimary)
                         .focused($titleFocused)
                     if kind != .note, let found = TypedDate.find(in: title) {
                         Button {
                             useTypedDate(found)
                         } label: {
                             Label("Set date: \(found.label)", systemImage: "calendar.badge.plus")
+                                .foregroundStyle(UD.brand700)
                         }
                     }
+                } header: {
+                    UDFormHeader(title: "Title")
                 }
+                .udFormRow()
 
                 if kind == .note {
                     Section {
                         TextField("Write something", text: $notes, axis: .vertical)
                             .lineLimit(6...)
                     } footer: {
-                        Text("Saved in UnifiedDay and your iCloud. Not visible in Apple's apps.")
+                        Label("Saved in UnifiedDay and your iCloud. Not visible in Apple's apps.", systemImage: "info.circle")
+                            .font(.footnote)
+                            .foregroundStyle(UD.textTertiary)
                     }
+                    .udFormRow()
 
                     Section {
                         NoteFolderPicker(selection: $folder)
                     }
+                    .udFormRow()
 
-                    Section("Attached to") {
+                    Section {
                         if let attachedItem {
                             attachmentRow(attachedItem)
                         }
@@ -95,18 +110,18 @@ struct ComposerView: View {
                                     }
                                 }
                         }
-                        Button("Attach Events or Reminders") {
+                        Button("Attach Events or Reminders", systemImage: "plus") {
                             showingItemPicker = true
                         }
+                    } header: {
+                        UDFormHeader(title: "Attached to")
                     }
+                    .udFormRow()
                 } else {
                     Section {
                         DatePicker("Date", selection: $date, displayedComponents: includeTime ? [.date, .hourAndMinute] : [.date])
                         Toggle("Include time", isOn: $includeTime)
                         RepeatPicker(selection: $repeatOption)
-                    }
-
-                    Section {
                         if kind == .event {
                             Picker("Calendar", selection: $selectedCalendarID) {
                                 ForEach(eventKit.writableEventCalendars(), id: \.calendarIdentifier) { calendar in
@@ -121,12 +136,19 @@ struct ComposerView: View {
                             }
                         }
                     }
+                    .udFormRow()
 
-                    Section("Apple notes") {
+                    Section {
                         TextField("Optional", text: $notes, axis: .vertical)
+                            .lineLimit(4...)
+                    } header: {
+                        UDFormHeader(title: "Apple notes")
                     }
+                    .udFormRow()
                 }
             }
+            .udFormBackground()
+            .tint(UD.brand600)
             .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showingItemPicker) {
@@ -146,7 +168,7 @@ struct ComposerView: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }
+                    UDToolbarConfirmButton { save() }
                         .disabled(!canSave)
                 }
             }
@@ -165,11 +187,19 @@ struct ComposerView: View {
     }
 
     private func attachmentRow(_ item: TimelineItem) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(item.title)
-            Text(item.scheduleLabel)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        HStack(spacing: 12) {
+            Image(systemName: item.kind == .event ? "calendar" : "checklist")
+                .foregroundStyle(UD.textTertiary)
+                .frame(width: 24)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(UD.textPrimary)
+                Text(item.scheduleLabel)
+                    .font(.subheadline)
+                    .foregroundStyle(UD.textTertiary)
+            }
         }
     }
 

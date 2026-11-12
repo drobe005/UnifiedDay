@@ -17,18 +17,22 @@ struct NeedsAttentionView: View {
                 if !hasLoaded {
                     ProgressView()
                 } else if items.isEmpty {
-                    ContentUnavailableView(
-                        "All caught up",
-                        systemImage: "checkmark.circle",
-                        description: Text("Nothing overdue or due today.")
+                    UDEmptyState(
+                        icon: "checkmark",
+                        title: "All caught up",
+                        message: "Nothing overdue or due today."
                     )
                 } else {
                     List {
                         section("Overdue", items: overdue)
                         section("Due today", items: dueToday)
                     }
+                    .listStyle(.plain)
+                    .listSectionSpacing(0)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .udScreenBackground()
             .navigationTitle("Needs Attention")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -47,7 +51,7 @@ struct NeedsAttentionView: View {
     @ViewBuilder
     private func section(_ title: String, items: [TimelineItem]) -> some View {
         if !items.isEmpty {
-            Section(title) {
+            Section {
                 ForEach(items) { item in
                     TimelineRow(item: item) {
                         Task { await load() }
@@ -57,6 +61,8 @@ struct NeedsAttentionView: View {
                         self.items.removeAll { $0.id == removed.id }
                     }
                 }
+            } header: {
+                UDListHeader(title: title, count: items.count)
             }
         }
     }

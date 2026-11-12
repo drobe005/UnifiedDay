@@ -61,3 +61,27 @@ Acceptance: daily use for 7 days with no data loss or sync surprises.
 Each integration gets its own sub-phase with the same rule: device-tested
 before done. Integrations stay additive; the timeline works with none
 connected.
+
+## Phase 6 - Redesign (branch `redesign`, in progress)
+
+Rebuild the look to match the Figma page "Redesign (Untitled UI)" in the Unified Day
+file. Colors come from the app icon and live in `Assets.xcassets/Colors`, each with
+a light and dark version, named like the "UnifiedDay" styles in Figma. Shared pieces
+live in `Sources/DesignSystem`. Decisions: keep San Francisco (no Inter), keep
+Apple's tab bar, navigation and sheets (tinted), derive dark mode colors.
+
+1. Foundation: color sets, `UD` tokens, shared components, brand tint, Settings.
+   (done 2026-11-12, checked in the Simulator in light and dark)
+2. Today and Calendar: timeline cards, section headers, summary badges.
+   (done 2026-11-12, checked in the Simulator in light and dark)
+3. Reminders and Needs Attention.
+   (done 2026-11-12, checked in the Simulator in light and dark)
+4. Notes: list, folders, editor.
+   (done 2026-11-12, checked in the Simulator in light and dark)
+5. Composer sheets, item detail, onboarding, access and empty states, Tab Order.
+   (done 2026-11-12, checked in the Simulator in light and dark. The error banner
+   and the Move sheet were restyled but not seen on screen.)
+
+Acceptance per step: matches the Figma screen in light mode, reads well in dark
+mode, Dynamic Type still works, and nothing behaves differently. Run on a real
+iPhone before merging to `main`.

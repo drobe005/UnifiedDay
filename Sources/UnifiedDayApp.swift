@@ -79,6 +79,7 @@ struct UnifiedDayApp: App {
     init() {
         // Set before launch finishes, so iOS hands over an alert tap that opened the app.
         UNUserNotificationCenter.current().delegate = EventKitService.alertPresenter
+        UD.configureAppearance()
     }
 
     var body: some Scene {
@@ -122,6 +123,7 @@ struct RootView: View {
         // iOS keeps some old tab icons when tabs swap places, even with the Tab API.
         // A new identity per order rebuilds the tab bar so every icon matches its title.
         .id(tabOrder)
+        .tint(UD.brand600)
         .environment(eventKit)
         .environment(\.noteLinkKeys, noteLinkKeys)
         .environment(\.composerButtonHidden, $composerButtonHidden)
@@ -137,10 +139,11 @@ struct RootView: View {
                 } label: {
                     Image(systemName: "plus")
                         .font(.title2.weight(.semibold))
-                        .padding(18)
-                        .background(.tint, in: Circle())
+                        .frame(width: 56, height: 56)
+                        .background(UD.brand600, in: Circle())
                         .foregroundStyle(.white)
-                        .shadow(radius: 4)
+                        .shadow(color: .black.opacity(0.12), radius: 12, y: 8)
+                        .shadow(color: .black.opacity(0.06), radius: 3, y: 2)
                 }
                 .padding(.trailing)
                 // Sits above the tab bar so the two never overlap.
@@ -233,12 +236,17 @@ struct ErrorBanner: View {
     var body: some View {
         Button(action: onDismiss) {
             Label(message, systemImage: "exclamationmark.triangle.fill")
-                .font(.subheadline)
-                .foregroundStyle(.white)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(UD.errorFg)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
-                .background(.red, in: RoundedRectangle(cornerRadius: 12))
+                .background(UD.errorBg, in: RoundedRectangle(cornerRadius: UD.cardRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: UD.cardRadius, style: .continuous)
+                        .strokeBorder(UD.errorBorder)
+                )
+                .shadow(color: .black.opacity(0.08), radius: 8, y: 4)
         }
         .buttonStyle(.plain)
         .padding(.horizontal)

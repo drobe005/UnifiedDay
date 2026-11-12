@@ -84,19 +84,26 @@ struct CalendarView: View {
             .listRowSeparator(.hidden)
 
             Section {
-                Picker("Show", selection: $scope) {
-                    Text("Selected day").tag(Scope.day)
-                    Text(mode == .week ? "All this week" : "All this month").tag(Scope.period)
-                    Text("Custom range").tag(Scope.custom)
-                }
-                Picker("Include", selection: $kind) {
-                    ForEach(Kind.allCases) { Text($0.rawValue).tag($0) }
-                }
+                filters
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: UD.screenPadding, bottom: 4, trailing: UD.screenPadding))
                 if scope == .custom {
-                    DatePicker("From", selection: $customStart, displayedComponents: .date)
-                    DatePicker("To", selection: $customEnd, in: customStart..., displayedComponents: .date)
+                    UDCard {
+                        DatePicker("From", selection: $customStart, displayedComponents: .date)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                        UDDivider()
+                        DatePicker("To", selection: $customEnd, in: customStart..., displayedComponents: .date)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                    }
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(UD.textPrimary)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: UD.screenPadding, bottom: 4, trailing: UD.screenPadding))
                 }
             }
+            .listRowSeparator(.hidden)
 
             if scope == .day {
                 daySection
@@ -104,6 +111,9 @@ struct CalendarView: View {
                 rangeSections
             }
         }
+        .listStyle(.plain)
+        .listSectionSpacing(0)
+        .udScreenBackground()
         .contentMargins(.bottom, ComposerButtonClearance.height, for: .scrollContent)
         .refreshable {
             await reload()
@@ -124,13 +134,59 @@ struct CalendarView: View {
         }
     }
 
+    /// What the list shows and which kinds of items, as two compact menu buttons.
+    private var filters: some View {
+        HStack(spacing: 8) {
+            Menu {
+                Picker("Show", selection: $scope) {
+                    Text("Selected day").tag(Scope.day)
+                    Text(mode == .week ? "All this week" : "All this month").tag(Scope.period)
+                    Text("Custom range").tag(Scope.custom)
+                }
+            } label: {
+                FilterChip(icon: "calendar", text: scopeLabel)
+            }
+            .accessibilityLabel("Show, \(scopeLabel)")
+
+            Menu {
+                Picker("Include", selection: $kind) {
+                    ForEach(Kind.allCases) { Text($0.rawValue).tag($0) }
+                }
+            } label: {
+                FilterChip(icon: "line.3.horizontal.decrease", text: kindLabel)
+            }
+            .accessibilityLabel("Include, \(kind.rawValue)")
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var scopeLabel: String {
+        switch scope {
+        case .day: "Selected day"
+        case .period: mode == .week ? "This week" : "This month"
+        case .custom: "Custom range"
+        }
+    }
+
+    private var kindLabel: String {
+        switch kind {
+        case .all: "All items"
+        case .events: "Events"
+        case .reminders: "Reminders"
+        }
+    }
+
+    private func emptyRow(_ text: String) -> some View {
+        UDEmptyListRow(text: text)
+    }
+
     private var daySection: some View {
         let visible = items.filter(kind.includes)
-        return Section(dayTitle) {
+        return Section {
             if visible.isEmpty {
                 if hasLoaded {
-                    Text("Nothing scheduled. Tap + to add something.")
-                        .foregroundStyle(.secondary)
+                    emptyRow("Nothing scheduled. Tap + to add something.")
                 }
             } else {
                 ForEach(visible) { item in
@@ -142,6 +198,8 @@ struct CalendarView: View {
                     }
                 }
             }
+        } header: {
+            UDListHeader(title: dayTitle, count: hasLoaded ? visible.count : nil)
         }
     }
 
@@ -149,13 +207,14 @@ struct CalendarView: View {
     private var rangeSections: some View {
         let days = rangeDays
         if days.isEmpty {
-            Section(rangeTitle) {
-                Text("Nothing scheduled in this range.")
-                    .foregroundStyle(.secondary)
+            Section {
+                emptyRow("Nothing scheduled in this range.")
+            } header: {
+                UDListHeader(title: rangeTitle)
             }
         }
         ForEach(days, id: \.day) { group in
-            Section(title(for: group.day)) {
+            Section {
                 ForEach(group.items) { item in
                     TimelineRow(item: item) {
                         Task { await loadRange() }
@@ -164,6 +223,8 @@ struct CalendarView: View {
                         rangeItems.removeAll { $0.id == removed.id }
                     }
                 }
+            } header: {
+                UDListHeader(title: title(for: group.day), count: group.items.count)
             }
         }
     }
@@ -358,7 +419,7 @@ struct CalendarGrid: View {
             ForEach(Array(weekdaySymbols.enumerated()), id: \.offset) { _, symbol in
                 Text(symbol)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(UD.textTertiary)
                     .accessibilityHidden(true)
             }
             ForEach(days, id: \.self) { day in
@@ -384,13 +445,15 @@ struct CalendarGrid: View {
                     .frame(width: 34, height: 34)
                     .background {
                         if isSelected {
-                            Circle().fill(.tint)
+                            Circle().fill(UD.brand600)
+                        } else if isToday {
+                            Circle().fill(UD.brand50)
                         }
                     }
                     .foregroundStyle(dayColor(isSelected: isSelected, isToday: isToday, isDimmed: isDimmed))
 
                 Circle()
-                    .fill(.secondary)
+                    .fill(UD.brand500)
                     .frame(width: 5, height: 5)
                     .opacity(isMarked ? 1 : 0)
             }
@@ -403,9 +466,9 @@ struct CalendarGrid: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    private func dayColor(isSelected: Bool, isToday: Bool, isDimmed: Bool) -> AnyShapeStyle {
-        if isSelected { return AnyShapeStyle(.white) }
-        if isToday { return AnyShapeStyle(.tint) }
-        return AnyShapeStyle(isDimmed ? .tertiary : .primary)
+    private func dayColor(isSelected: Bool, isToday: Bool, isDimmed: Bool) -> Color {
+        if isSelected { return .white }
+        if isToday { return UD.brand700 }
+        return isDimmed ? UD.textQuaternary : UD.textPrimary
     }
 }

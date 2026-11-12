@@ -24,7 +24,8 @@ struct NoteEditorView: View {
         Form {
             Section {
                 TextField("Title", text: edit(\.title))
-                    .font(.headline)
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(UD.textPrimary)
                 if #available(iOS 26.0, *) {
                     RichNoteEditor(note: note)
                 } else {
@@ -32,30 +33,42 @@ struct NoteEditorView: View {
                         .lineLimit(8...)
                 }
             } footer: {
-                Text("Saved in UnifiedDay and your iCloud. Not visible in Apple's apps.")
+                Label("Saved in UnifiedDay and your iCloud. Not visible in Apple's apps.", systemImage: "info.circle")
+                    .font(.footnote)
+                    .foregroundStyle(UD.textTertiary)
             }
+            .udFormRow()
 
             NoteImagesSection(note: note, viewing: $viewingImage)
 
             Section {
                 NoteFolderPicker(selection: folderSelection)
             }
+            .udFormRow()
 
-            Section("Attached to") {
+            Section {
                 ForEach(note.attachedLinks) { link in
                     AttachedItemRow(link: link) { openingItem = $0 }
                 }
-                Button("Attach Events or Reminders") {
+                Button("Attach Events or Reminders", systemImage: "plus") {
                     showingItemPicker = true
                 }
+            } header: {
+                UDFormHeader(title: "Attached to")
             }
+            .udFormRow()
 
+            // In the footer, not a row, so the form's rounded row shape doesn't clip it.
             Section {
+            } footer: {
                 Button("Delete Note", role: .destructive) {
                     confirmingDelete = true
                 }
+                .buttonStyle(UDDestructiveButtonStyle())
+                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
             }
         }
+        .udFormBackground()
         .navigationTitle("Note")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -70,7 +83,7 @@ struct NoteEditorView: View {
                 .accessibilityLabel(note.isPinned ? "Unpin" : "Pin")
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button("Save") {
+                UDToolbarConfirmButton {
                     modelContext.saveNotes(reportingTo: eventKit)
                     dismiss()
                 }
@@ -161,7 +174,7 @@ struct RichNoteEditor: View {
             .overlay(alignment: .topLeading) {
                 if text.characters.isEmpty {
                     Text("Write something")
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(UD.textQuaternary)
                         .padding(.top, 8)
                         .padding(.leading, 5)
                         .allowsHitTesting(false)
@@ -345,12 +358,26 @@ struct AttachedItemRow: View {
 
     var body: some View {
         // A tap gesture, not a Button: a plain Button in this Form row didn't respond.
-        VStack(alignment: .leading, spacing: 2) {
-            Text(item?.title ?? link.title)
-                .foregroundStyle(item == nil ? .secondary : .primary)
-            Text(subtitle)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        HStack(spacing: 12) {
+            Image(systemName: link.kind == .event ? "calendar" : "checklist")
+                .foregroundStyle(UD.textTertiary)
+                .frame(width: 24)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item?.title ?? link.title)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(item == nil ? UD.textTertiary : UD.textPrimary)
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(UD.textTertiary)
+            }
+            Spacer(minLength: 8)
+            if item != nil {
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(UD.textQuaternary)
+                    .accessibilityHidden(true)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
@@ -422,7 +449,10 @@ struct ItemPickerView: View {
         NavigationStack {
             List(visibleItems) { item in
                 row(item)
+                    .udFormRow()
             }
+            .udFormBackground()
+            .listRowSeparatorTint(UD.borderSecondary)
             .safeAreaInset(edge: .top) {
                 Picker("Type", selection: $tab) {
                     ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
@@ -433,20 +463,24 @@ struct ItemPickerView: View {
             }
             .overlay {
                 if !eventKit.accessGranted {
-                    ContentUnavailableView(
-                        "Calendar access needed",
-                        systemImage: "calendar.badge.exclamationmark",
-                        description: Text("Allow access to attach events and reminders.")
+                    UDEmptyState(
+                        icon: "lock",
+                        title: "Calendar access needed",
+                        message: "Allow access to attach events and reminders."
                     )
                 } else if hasLoaded && visibleItems.isEmpty {
                     if trimmedSearch.isEmpty {
-                        ContentUnavailableView(
-                            tab == .events ? "No upcoming events" : "No open reminders",
-                            systemImage: tab == .events ? "calendar" : "checklist",
-                            description: Text("Nothing to attach here in the next 30 days.")
+                        UDEmptyState(
+                            icon: tab == .events ? "calendar" : "checklist",
+                            title: tab == .events ? "No upcoming events" : "No open reminders",
+                            message: "Nothing to attach here in the next 30 days."
                         )
                     } else {
-                        ContentUnavailableView.search(text: trimmedSearch)
+                        UDEmptyState(
+                            icon: "magnifyingglass",
+                            title: "No results",
+                            message: "Nothing matches \"\(trimmedSearch)\"."
+                        )
                     }
                 }
             }
@@ -481,13 +515,16 @@ struct ItemPickerView: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: isChecked ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isChecked ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    .font(.title3)
+                    .foregroundStyle(isChecked ? UD.brand600 : UD.borderPrimary)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.title)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(UD.textPrimary)
                     Text(attached ? "Already attached" : item.scheduleLabel)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.subheadline)
+                        .foregroundStyle(UD.textTertiary)
                 }
                 Spacer()
             }
@@ -527,7 +564,7 @@ struct AttachedNotesSection: View {
     }
 
     var body: some View {
-        Section("Attached notes") {
+        Section {
             ForEach(notes) { note in
                 NavigationLink {
                     NoteEditorView(note: note)
@@ -535,9 +572,12 @@ struct AttachedNotesSection: View {
                     NoteRow(note: note)
                 }
             }
-            Button("New Note", action: onNewNote)
-            Button("Attach Existing Note", action: onAttachExisting)
+            Button("New Note", systemImage: "plus", action: onNewNote)
+            Button("Attach Existing Note", systemImage: "doc.text", action: onAttachExisting)
+        } header: {
+            UDFormHeader(title: "Attached notes")
         }
+        .udFormRow()
     }
 }
 
@@ -564,19 +604,28 @@ struct NotePickerView: View {
                     attach(note)
                 } label: {
                     NoteRow(note: note)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .udFormRow()
             }
+            .udFormBackground()
+            .listRowSeparatorTint(UD.borderSecondary)
             .overlay {
                 if available.isEmpty {
                     if searchText.isEmpty {
-                        ContentUnavailableView(
-                            "No notes to attach",
-                            systemImage: "note.text",
-                            description: Text("Notes you write will show up here.")
+                        UDEmptyState(
+                            icon: "note.text",
+                            title: "No notes to attach",
+                            message: "Notes you write will show up here."
                         )
                     } else {
-                        ContentUnavailableView.search(text: searchText)
+                        UDEmptyState(
+                            icon: "magnifyingglass",
+                            title: "No results",
+                            message: "Nothing matches \"\(searchText)\"."
+                        )
                     }
                 }
             }
@@ -664,7 +713,7 @@ struct NoteImagesSection: View {
     private let columns = [GridItem(.adaptive(minimum: 90), spacing: 8)]
 
     var body: some View {
-        Section("Images") {
+        Section {
             let images = note.sortedImages
             if !images.isEmpty {
                 LazyVGrid(columns: columns, spacing: 8) {
@@ -693,7 +742,10 @@ struct NoteImagesSection: View {
                 add(pasted.map(\.data))
             }
             .labelStyle(.titleAndIcon)
+        } header: {
+            UDFormHeader(title: "Images")
         }
+        .udFormRow()
         .onChange(of: pickedPhotos) { _, items in
             guard !items.isEmpty else { return }
             Task {
@@ -743,7 +795,7 @@ struct NoteImageThumbnail: View {
 
     var body: some View {
         Rectangle()
-            .fill(.quaternary)
+            .fill(UD.bgSecondary)
             .aspectRatio(1, contentMode: .fit)
             .overlay {
                 if let preview {
@@ -777,7 +829,7 @@ struct NoteImageViewer: View {
                         .scaledToFit()
                         .accessibilityLabel("Image")
                 } else {
-                    ContentUnavailableView("Image not available", systemImage: "photo")
+                    UDEmptyState(icon: "photo", title: "Image not available", message: "It may still be syncing from iCloud.")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

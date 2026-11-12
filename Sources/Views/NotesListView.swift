@@ -111,38 +111,39 @@ struct NotesListView: View {
         let others = visible.filter { !$0.isPinned }
         return List {
             if !pinned.isEmpty {
-                Section("Pinned") {
+                Section {
                     ForEach(pinned, content: row)
+                } header: {
+                    UDListHeader(title: "Pinned", count: pinned.count)
                 }
             }
             Section {
                 ForEach(others, content: row)
             } header: {
-                if !pinned.isEmpty {
-                    Text("Notes")
+                if !pinned.isEmpty && !others.isEmpty {
+                    UDListHeader(title: "Notes", count: others.count)
                 }
             }
         }
+        .listStyle(.plain)
+        .listSectionSpacing(0)
+        .udScreenBackground()
         .contentMargins(.bottom, ComposerButtonClearance.height, for: .scrollContent)
         .overlay {
             if notes.isEmpty {
-                ContentUnavailableView(
-                    "No notes yet",
-                    systemImage: "note.text",
-                    description: Text("Tap + to write one.")
-                )
+                UDEmptyState(icon: "note.text", title: "No notes yet", message: "Tap + to write one.")
             } else if visible.isEmpty {
                 if searchText.isEmpty {
-                    ContentUnavailableView(
-                        "No notes here",
-                        systemImage: "folder",
-                        description: Text("Try another folder or filter.")
-                    )
+                    UDEmptyState(icon: "folder", title: "No notes here", message: "Try another folder or filter.")
                 } else {
-                    ContentUnavailableView.search(text: searchText)
+                    searchEmptyState(searchText)
                 }
             }
         }
+    }
+
+    private func searchEmptyState(_ text: String) -> some View {
+        UDEmptyState(icon: "magnifyingglass", title: "No results", message: "Nothing matches \"\(text)\".")
     }
 
     /// Every folder with its note count. Tapping one opens its notes.
@@ -162,7 +163,7 @@ struct NotesListView: View {
                         Button("Rename", systemImage: "pencil") {
                             nameFolder(folder)
                         }
-                        .tint(.orange)
+                        .tint(UD.orange500)
                     }
                     .contextMenu {
                         Button("Rename", systemImage: "pencil") { nameFolder(folder) }
@@ -176,10 +177,12 @@ struct NotesListView: View {
                 folderButton("No Folder", systemImage: "tray", count: notes.filter { $0.folder == nil }.count, id: Self.unfiledFolderID)
             }
         }
+        .udFormBackground()
+        .listRowSeparatorTint(UD.borderSecondary)
         .contentMargins(.bottom, ComposerButtonClearance.height, for: .scrollContent)
         .overlay {
             if !trimmedSearch.isEmpty && shown.isEmpty {
-                ContentUnavailableView.search(text: trimmedSearch)
+                searchEmptyState(trimmedSearch)
             }
         }
     }
@@ -189,28 +192,37 @@ struct NotesListView: View {
             folderID = id
             showsFolders = false
         } label: {
-            LabeledContent {
-                Text("\(count)")
-            } label: {
-                Label(name, systemImage: systemImage)
+            HStack(spacing: 12) {
+                Image(systemName: systemImage)
+                    .foregroundStyle(UD.textTertiary)
+                    .frame(width: 24)
+                Text(name)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(UD.textPrimary)
+                Spacer(minLength: 8)
+                UDBadge(text: "\(count)")
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(UD.textQuaternary)
             }
+            .frame(minHeight: 36)
+            .contentShape(Rectangle())
         }
-        .foregroundStyle(.primary)
+        .buttonStyle(.plain)
+        .udFormRow()
+        .accessibilityElement(children: .combine)
+        .accessibilityValue("\(count) notes")
     }
 
     private func row(_ note: Note) -> some View {
-        NavigationLink {
-            NoteEditorView(note: note)
-        } label: {
-            NoteRow(note: note)
-        }
+        NoteCardLink(note: note)
         .swipeActions(edge: .leading) {
             Button {
                 togglePin(note)
             } label: {
                 Label(note.isPinned ? "Unpin" : "Pin", systemImage: note.isPinned ? "pin.slash" : "pin")
             }
-            .tint(.orange)
+            .tint(UD.orange500)
         }
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
@@ -317,34 +329,59 @@ struct NotesListView: View {
     }
 }
 
+/// A note as a card in a plain list, opening the editor on tap.
+struct NoteCardLink: View {
+    let note: Note
+
+    var body: some View {
+        UDCard {
+            NoteRow(note: note)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+        }
+        // The link sits behind the card, so the list doesn't add its own chevron.
+        .background {
+            NavigationLink {
+                NoteEditorView(note: note)
+            } label: {
+                EmptyView()
+            }
+            .opacity(0)
+        }
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+    }
+}
+
 struct NoteRow: View {
     let note: Note
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 4) {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
                 if note.isPinned {
                     Image(systemName: "pin.fill")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(UD.orange500)
                         .accessibilityLabel("Pinned")
                 }
                 Text(note.displayTitle)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(UD.textPrimary)
                     .lineLimit(1)
             }
             if !note.preview.isEmpty {
                 Text(note.preview)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(UD.textSecondary)
                     .lineLimit(2)
             }
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Text(note.updatedAt.formatted(date: .abbreviated, time: .omitted))
                 if let folder = note.folder {
-                    HStack(spacing: 2) {
-                        Image(systemName: "folder")
-                        Text(folder.name)
-                    }
+                    UDBadge(text: folder.name)
+                        .accessibilityLabel("Folder \(folder.name)")
                 }
                 if !(note.images ?? []).isEmpty {
                     Image(systemName: "photo")
@@ -356,7 +393,8 @@ struct NoteRow: View {
                 }
             }
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(UD.textTertiary)
+            .padding(.top, 4)
         }
     }
 }
