@@ -62,7 +62,7 @@ Each integration gets its own sub-phase with the same rule: device-tested
 before done. Integrations stay additive; the timeline works with none
 connected.
 
-## Phase 6 - Redesign (branch `redesign`, in progress)
+## Phase 6 - Redesign (branch `redesign`, verified on iPhone 16 Pro Max 2026-11-12, not yet merged)
 
 Rebuild the look to match the Figma page "Redesign (Untitled UI)" in the Unified Day
 file. Colors come from the app icon and live in `Assets.xcassets/Colors`, each with
@@ -85,3 +85,52 @@ Apple's tab bar, navigation and sheets (tinted), derive dark mode colors.
 Acceptance per step: matches the Figma screen in light mode, reads well in dark
 mode, Dynamic Type still works, and nothing behaves differently. Run on a real
 iPhone before merging to `main`.
+
+## Phase 7 - Mac app (branch `mac`, planned 2026-11-12, not started)
+
+A native Mac version built from the same code. Starts after Phase 6 is merged to
+`main`. Layout follows the "UnifiedDay for Mac" mockup:
+https://claude.ai/artifact/1gFLrUoBpjuyG6iPxZJCuY
+
+Decisions: add Mac as a second destination on the existing `UnifiedDay` target
+(not Mac Catalyst, not a second project), so the bundle ID and iCloud container
+stay the same and notes sync between the two. `Models`, `Services` and
+`DesignSystem` are shared as they are. Screens that differ on the Mac live in
+`Sources/Mac`. Platform differences go behind small shared helpers, not `#if`
+blocks spread through the views. No new dependencies.
+
+1. Opens on the Mac. Add the Mac destination and a Mac entitlements file (App
+   Sandbox, calendar access, iCloud, network). Give the iPhone-only calls a Mac
+   path: navigation bar colors and `UIColor` in `UD.swift`, `UIImage` in
+   `Note.swift` and `NoteEditorView`, `UIDevice` in `Feedback.swift`, shake to
+   undo in `UnifiedDayApp.swift`, `UIApplication`, `UIPasteboard` and `editMode`
+   in `SettingsView` and `TodayView`, and the `.topBar` toolbar placements and
+   `navigationBarTitleDisplayMode` in the views. Keep the tab view for now, shown
+   as a sidebar. Touches entitlements and Info.plist keys.
+   Check against Apple's docs first: which sandbox entitlement covers Reminders
+   on macOS, the push entitlement name on macOS, and the lowest macOS version the
+   note editor builds for.
+   Acceptance: the app launches on the Mac, asks for access, and Today shows real
+   events and reminders. The iPhone build is unchanged.
+2. Window and menus. The mockup's sidebar (search, four sections, mini month,
+   Settings), a New button in the toolbar, a sensible minimum window size, and
+   Settings as a standard Mac settings window. Menu commands with shortcuts: New
+   (Cmd N), Search (Cmd F), Refresh (Cmd R), Undo (Cmd Z, replaces shake), and
+   Cmd 1 to 4 to switch sections.
+3. Today with the details panel. Item detail opens in a panel on the right, not
+   a sheet. Reschedule and delete move from swipes to hover buttons and the
+   right-click menu. Needs Attention opens as a popover from the bell.
+4. Calendar. Month grid with items inside each day and the selected day's list
+   beside it. Week mode, the filters and the custom range carry over.
+5. Reminders. One column per Apple Reminders list, with sort, filter and New
+   List. Dragging a reminder between lists is optional and can wait.
+6. Notes. List and editor side by side, the formatting bar on top, folders,
+   photos from the picker or dragged in, attach to events and reminders.
+7. Daily use. Dock badge, alerts through Notification Center, and notes syncing
+   with the iPhone. A Mac build run from Xcode reads iCloud's development data,
+   while the TestFlight iPhone app reads production data, so notes only match
+   once the Mac app is also installed through TestFlight. Set that up here.
+
+Acceptance per step: works on the Mac with real calendar and reminder data in
+light and dark mode, and the iPhone app still builds and behaves the same. Phase
+done after a week of daily use on the Mac with no data loss or sync surprises.
