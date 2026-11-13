@@ -150,7 +150,7 @@ struct ComposerView: View {
             .udFormBackground()
             .tint(UD.brand600)
             .navigationTitle(navigationTitle)
-            .navigationBarTitleDisplayMode(.inline)
+            .udInlineTitle()
             .sheet(isPresented: $showingItemPicker) {
                 ItemPickerView(isAttached: isAttached) { items in
                     attachments += items

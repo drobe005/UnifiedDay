@@ -28,7 +28,7 @@ struct SettingsView: View {
             .udScreenBackground()
             .navigationTitle("Settings")
             .alert("No email app set up", isPresented: $showingFeedbackAddress) {
-                Button("Copy Address") { UIPasteboard.general.string = Feedback.address }
+                Button("Copy Address") { Platform.copy(Feedback.address) }
                 Button("OK", role: .cancel) {}
             } message: {
                 Text("Send your feedback to \(Feedback.address).")
@@ -49,9 +49,7 @@ struct SettingsView: View {
                     if !eventKit.accessGranted {
                         UDDivider()
                         linkRow("Open Settings") {
-                            if let url = URL(string: UIApplication.openSettingsURLString) {
-                                UIApplication.shared.open(url)
-                            }
+                            Platform.openAppSettings()
                         }
                     }
                 }
@@ -99,10 +97,8 @@ struct SettingsView: View {
                                 .accessibilityElement(children: .combine)
                         }
                         UDDivider()
-                        linkRow("Change in iOS Settings") {
-                            if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
-                                UIApplication.shared.open(url)
-                            }
+                        linkRow("Change in \(Platform.settingsName)") {
+                            Platform.openNotificationSettings()
                         }
                     }
                     .onChange(of: alertsEnabled) { _, enabled in
@@ -154,7 +150,7 @@ struct SettingsView: View {
 
                 UDSection(
                     title: "About",
-                    footer: "Report a bug or share an idea. Your app version and iPhone model are added to the email for you."
+                    footer: "Report a bug or share an idea. Your app version and \(Platform.deviceName) model are added to the email for you."
                 ) {
                     linkRow("Send Feedback", icon: "envelope") { sendFeedback() }
                     UDDivider()
@@ -223,7 +219,7 @@ struct SettingsView: View {
             showingFeedbackAddress = true
             return
         }
-        UIApplication.shared.open(url) { opened in
+        Platform.open(url) { opened in
             if !opened { showingFeedbackAddress = true }
         }
     }
@@ -282,9 +278,9 @@ struct TabOrderView: View {
         }
         .udFormBackground()
         .listRowSeparatorTint(UD.borderSecondary)
-        .environment(\.editMode, .constant(.active))
+        .udAlwaysEditing()
         .navigationTitle("Tab Order")
-        .navigationBarTitleDisplayMode(.inline)
+        .udInlineTitle()
         .onAppear { order = AppTab.order(from: saved) }
         .onDisappear {
             let value = order == AppTab.movable ? "" : order.map(\.rawValue).joined(separator: ",")

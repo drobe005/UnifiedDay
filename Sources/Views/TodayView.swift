@@ -53,7 +53,7 @@ struct TodayView: View {
             }
             .toolbar {
                 if eventKit.accessGranted {
-                    ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItem(placement: .udTrailing) {
                         Button {
                             showingAttention = true
                         } label: {
@@ -62,7 +62,7 @@ struct TodayView: View {
                         .accessibilityLabel("Needs attention, \(attentionCount) \(attentionCount == 1 ? "item" : "items")")
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .udTrailing) {
                     Button {
                         Task { await load() }
                     } label: {
@@ -273,12 +273,10 @@ struct AccessPromptView: View {
                 UDEmptyState(
                     icon: "lock",
                     title: "Calendar access needed",
-                    message: "Turn on full access for Calendars and Reminders in iOS Settings.",
+                    message: "Turn on full access for Calendars and Reminders in \(Platform.settingsName).",
                     actionTitle: "Open Settings"
                 ) {
-                    if let url = URL(string: UIApplication.openSettingsURLString) {
-                        UIApplication.shared.open(url)
-                    }
+                    Platform.openAppSettings()
                 }
             } else {
                 UDEmptyState(
@@ -549,7 +547,7 @@ struct RescheduleDateSheet: View {
                 .frame(maxHeight: .infinity, alignment: .top)
                 .background(UD.bgScreen)
                 .navigationTitle("Move \(item.title)")
-                .navigationBarTitleDisplayMode(.inline)
+                .udInlineTitle()
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") { dismiss() }
@@ -615,7 +613,7 @@ struct OnboardingView: View {
             .padding(.bottom, 16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(UD.bgScreen)
-            .navigationBarTitleDisplayMode(.inline)
+            .udInlineTitle()
         }
     }
 

@@ -1,5 +1,7 @@
 import SwiftUI
+#if os(iOS)
 import UIKit
+#endif
 
 /// UnifiedDay design tokens. The colors live in Assets.xcassets/Colors, each with a
 /// light and dark version, and match the "UnifiedDay" styles in the Figma file.
@@ -57,9 +59,11 @@ enum UD {
     static let screenPadding: CGFloat = 16
     static let sectionSpacing: CGFloat = 24
 
-    /// Navigation bar and tab bar colors. Called once at launch.
+    /// Navigation bar and tab bar colors on iPhone. Called once at launch. The Mac
+    /// keeps its standard window chrome.
     @MainActor
     static func configureAppearance() {
+        #if os(iOS)
         let text = UIColor(named: "TextPrimary") ?? .label
         let nav = UINavigationBarAppearance()
         nav.configureWithDefaultBackground()
@@ -74,5 +78,6 @@ enum UD {
         UINavigationBar.appearance().scrollEdgeAppearance = navEdge
 
         UITabBar.appearance().unselectedItemTintColor = UIColor(named: "TextTertiary")
+        #endif
     }
 }

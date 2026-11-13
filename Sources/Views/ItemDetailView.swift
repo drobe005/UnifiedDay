@@ -106,7 +106,7 @@ struct ItemDetailView: View {
             .udFormBackground()
             .tint(UD.brand600)
             .navigationTitle(isEvent ? "Event" : "Reminder")
-            .navigationBarTitleDisplayMode(.inline)
+            .udInlineTitle()
             .toolbar { toolbar }
             .sheet(isPresented: $showingNewNote) {
                 ComposerView(initialKind: .note, attachingTo: item)

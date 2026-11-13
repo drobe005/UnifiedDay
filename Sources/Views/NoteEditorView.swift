@@ -26,7 +26,7 @@ struct NoteEditorView: View {
                 TextField("Title", text: edit(\.title))
                     .font(.title3.weight(.bold))
                     .foregroundStyle(UD.textPrimary)
-                if #available(iOS 26.0, *) {
+                if #available(iOS 26.0, macOS 26.0, *) {
                     RichNoteEditor(note: note)
                 } else {
                     TextField("Write something", text: edit(\.text), axis: .vertical)
@@ -70,9 +70,9 @@ struct NoteEditorView: View {
         }
         .udFormBackground()
         .navigationTitle("Note")
-        .navigationBarTitleDisplayMode(.inline)
+        .udInlineTitle()
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .udTrailing) {
                 ShareLink(item: note.shareText)
                     .disabled(note.shareText.isEmpty)
                 Button {
@@ -142,7 +142,7 @@ struct NoteEditorView: View {
 
 /// The note's body with formatting. Buttons above the keyboard apply bold, italic,
 /// underline, strikethrough, headings, bullets, and checklists.
-@available(iOS 26.0, *)
+@available(iOS 26.0, macOS 26.0, *)
 struct RichNoteEditor: View {
     let note: Note
 
@@ -485,7 +485,7 @@ struct ItemPickerView: View {
                 }
             }
             .navigationTitle(selected.isEmpty ? "Attach" : "\(selected.count) Selected")
-            .navigationBarTitleDisplayMode(.inline)
+            .udInlineTitle()
             .searchable(text: $searchText, prompt: "Search the next 30 days")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -630,7 +630,7 @@ struct NotePickerView: View {
                 }
             }
             .navigationTitle("Attach Note")
-            .navigationBarTitleDisplayMode(.inline)
+            .udInlineTitle()
             .searchable(text: $searchText, prompt: "Search notes")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -791,7 +791,7 @@ struct NoteImagesSection: View {
 struct NoteImageThumbnail: View {
     let image: NoteImage
 
-    @State private var preview: UIImage?
+    @State private var preview: PlatformImage?
 
     var body: some View {
         Rectangle()
@@ -799,16 +799,14 @@ struct NoteImageThumbnail: View {
             .aspectRatio(1, contentMode: .fit)
             .overlay {
                 if let preview {
-                    Image(uiImage: preview)
+                    Image(platformImage: preview)
                         .resizable()
                         .scaledToFill()
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .task(id: image.persistentModelID) {
-                preview = image.data
-                    .flatMap(UIImage.init(data:))?
-                    .preparingThumbnail(of: CGSize(width: 240, height: 240))
+                preview = image.data.flatMap { Platform.thumbnailImage(from: $0, maxDimension: 240) }
             }
     }
 }
@@ -823,8 +821,8 @@ struct NoteImageViewer: View {
     var body: some View {
         NavigationStack {
             SwiftUI.Group {
-                if let data = image.data, let uiImage = UIImage(data: data) {
-                    Image(uiImage: uiImage)
+                if let data = image.data, let full = PlatformImage(data: data) {
+                    Image(platformImage: full)
                         .resizable()
                         .scaledToFit()
                         .accessibilityLabel("Image")
@@ -834,7 +832,7 @@ struct NoteImageViewer: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle("Image")
-            .navigationBarTitleDisplayMode(.inline)
+            .udInlineTitle()
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }

@@ -126,7 +126,7 @@ struct NotesListView: View {
             }
         }
         .listStyle(.plain)
-        .listSectionSpacing(0)
+        .udListSectionSpacing(0)
         .udScreenBackground()
         .contentMargins(.bottom, ComposerButtonClearance.height, for: .scrollContent)
         .overlay {
@@ -301,11 +301,11 @@ struct NotesListView: View {
     private var toolbar: some ToolbarContent {
         // Two plain buttons, not a segmented picker: the toolbar already draws a
         // glass capsule, and a picker inside it looked doubled and animated unevenly.
-        ToolbarItemGroup(placement: .topBarLeading) {
+        ToolbarItemGroup(placement: .udLeading) {
             viewButton("Notes", systemImage: "note.text", showsFolders: false)
             viewButton("Folders", systemImage: "folder", showsFolders: true)
         }
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItem(placement: .udTrailing) {
             if showsFolders {
                 Button("New Folder", systemImage: "folder.badge.plus") {
                     nameFolder(nil)

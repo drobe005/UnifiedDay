@@ -54,7 +54,7 @@ struct CalendarView: View {
                 }
             }
             .navigationTitle(selectedDay.formatted(.dateTime.month(.wide).year()))
-            .navigationBarTitleDisplayMode(.inline)
+            .udInlineTitle()
             .toolbar { toolbar }
         }
     }
@@ -112,7 +112,7 @@ struct CalendarView: View {
             }
         }
         .listStyle(.plain)
-        .listSectionSpacing(0)
+        .udListSectionSpacing(0)
         .udScreenBackground()
         .contentMargins(.bottom, ComposerButtonClearance.height, for: .scrollContent)
         .refreshable {
@@ -231,13 +231,13 @@ struct CalendarView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
+        ToolbarItem(placement: .udLeading) {
             Button("Today") {
                 selectedDay = calendar.startOfDay(for: .now)
             }
             .disabled(calendar.isDateInToday(selectedDay))
         }
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItem(placement: .udTrailing) {
             Button {
                 shiftPeriod(by: -1)
             } label: {
@@ -245,7 +245,7 @@ struct CalendarView: View {
             }
             .accessibilityLabel("Previous \(mode.rawValue.lowercased())")
         }
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItem(placement: .udTrailing) {
             Button {
                 shiftPeriod(by: 1)
             } label: {

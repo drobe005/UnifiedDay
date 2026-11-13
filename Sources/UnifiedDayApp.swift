@@ -48,6 +48,7 @@ extension Notification.Name {
     static let deviceDidShake = Notification.Name("deviceDidShake")
 }
 
+#if os(iOS)
 extension UIWindow {
     /// SwiftUI has no shake gesture, so the window passes shakes on for undo.
     open override func motionEnded(_ motion: UIEvent.EventSubtype, with event: UIEvent?) {
@@ -57,6 +58,7 @@ extension UIWindow {
         }
     }
 }
+#endif
 
 /// One press of the + button, carrying what the composer should start on.
 struct ComposerRequest: Identifiable {

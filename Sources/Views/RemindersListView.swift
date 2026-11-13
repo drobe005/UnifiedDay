@@ -100,7 +100,7 @@ struct RemindersListView: View {
             }
         }
         .listStyle(.plain)
-        .listSectionSpacing(0)
+        .udListSectionSpacing(0)
         .udScreenBackground()
         .contentMargins(.bottom, ComposerButtonClearance.height, for: .scrollContent)
         .overlay {
@@ -129,13 +129,13 @@ struct RemindersListView: View {
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         if eventKit.accessGranted {
-            ToolbarItem(placement: .topBarLeading) {
+            ToolbarItem(placement: .udLeading) {
                 Button("New List", systemImage: "folder.badge.plus") {
                     newListName = ""
                     isNamingList = true
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .udTrailing) {
                 Menu {
                     Picker("Sort by", selection: $sort) {
                         ForEach(Sort.allCases) { Text($0.rawValue).tag($0) }

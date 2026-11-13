@@ -420,7 +420,7 @@ final class EventKitService {
         do {
             let allowed = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
             if !allowed {
-                lastError = "Allow badges for UnifiedDay in iOS Settings, under Notifications."
+                lastError = "Allow badges for UnifiedDay in \(Platform.settingsName), under Notifications."
             }
             return allowed
         } catch {
@@ -457,7 +457,7 @@ final class EventKitService {
             return false
         }
         guard await center.notificationSettings().alertSetting == .enabled else {
-            lastError = "Allow alerts for UnifiedDay in iOS Settings, under Notifications."
+            lastError = "Allow alerts for UnifiedDay in \(Platform.settingsName), under Notifications."
             return false
         }
         return true

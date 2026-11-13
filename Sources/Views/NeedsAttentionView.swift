@@ -28,13 +28,13 @@ struct NeedsAttentionView: View {
                         section("Due today", items: dueToday)
                     }
                     .listStyle(.plain)
-                    .listSectionSpacing(0)
+                    .udListSectionSpacing(0)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .udScreenBackground()
             .navigationTitle("Needs Attention")
-            .navigationBarTitleDisplayMode(.inline)
+            .udInlineTitle()
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
