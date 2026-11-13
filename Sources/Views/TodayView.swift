@@ -123,7 +123,7 @@ struct TodayView: View {
                     // under the search bar without an extra list gap.
                     VStack(alignment: .leading, spacing: 12) {
                         if section.title == sections.first?.title {
-                            summaryBadges
+                            TodaySummaryBadges(items: items)
                                 .padding(.top, 4)
                         }
                         UDListHeader(title: section.title, count: section.items.count)
@@ -187,23 +187,12 @@ struct TodayView: View {
         isSearching = false
     }
 
-    /// "4 events" and "1 reminder left" as badges under the search bar.
-    private var summaryBadges: some View {
-        let events = items.filter { $0.kind == .event }.count
-        let reminders = items.count - events
-        return HStack(spacing: 8) {
-            UDBadge(text: "\(events) \(events == 1 ? "event" : "events")", tone: .brand, dot: true)
-            UDBadge(
-                text: "\(reminders) \(reminders == 1 ? "reminder" : "reminders") left",
-                tone: reminders > 0 ? .warning : .gray,
-                dot: true
-            )
-            Spacer(minLength: 0)
-        }
-        .accessibilityElement(children: .combine)
+    private var sections: [(title: String, items: [TimelineItem])] {
+        Self.sections(of: items)
     }
 
-    private var sections: [(title: String, items: [TimelineItem])] {
+    /// Today's items split into the spec's sections, leaving out empty ones.
+    static func sections(of items: [TimelineItem]) -> [(title: String, items: [TimelineItem])] {
         let overdue = items.filter(\.isOverdue)
         let timed = items.filter { !$0.isOverdue && $0.isTimed }
         let allDay = items.filter { !$0.isOverdue && $0.isAllDay }
@@ -235,6 +224,26 @@ struct TodayView: View {
     }
 }
 
+/// "4 events" and "1 reminder left" as badges at the top of Today.
+struct TodaySummaryBadges: View {
+    let items: [TimelineItem]
+
+    var body: some View {
+        let events = items.filter { $0.kind == .event }.count
+        let reminders = items.count - events
+        HStack(spacing: 8) {
+            UDBadge(text: "\(events) \(events == 1 ? "event" : "events")", tone: .brand, dot: true)
+            UDBadge(
+                text: "\(reminders) \(reminders == 1 ? "reminder" : "reminders") left",
+                tone: reminders > 0 ? .warning : .gray,
+                dot: true
+            )
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// Bell with a count, for the Today toolbar.
 struct AttentionBell: View {
     let count: Int
@@ -258,7 +267,7 @@ struct AttentionBell: View {
 
 /// Extra scroll room so the floating + button never covers the last row.
 enum ComposerButtonClearance {
-    static let height: CGFloat = 88
+    static let height: CGFloat = Platform.usesFloatingAddButton ? 88 : 16
 }
 
 /// Shown when Calendar or Reminders access is missing. Never a dead end: it either
@@ -308,6 +317,12 @@ struct TimelineRow: View {
     @State private var confirmingDelete = false
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.noteLinkKeys) private var noteLinkKeys
+    @Environment(\.timelineSelection) private var selection
+    @Environment(\.timelineShowsMoveButtons) private var showsMoveButtons
+
+    private var isSelected: Bool {
+        selection?.wrappedValue == item.id
+    }
 
     private var hasNote: Bool {
         noteLinkKeys.contains(item.externalIdentifier) || noteLinkKeys.contains(item.storeIdentifier)
@@ -333,46 +348,12 @@ struct TimelineRow: View {
     }
 
     var body: some View {
-        UDCard {
-            // The checkbox's 44 pt tap area already adds room, so reminders need less spacing.
-            HStack(spacing: item.kind == .reminder ? 2 : 12) {
-                if item.kind == .reminder {
-                    Button {
-                        toggleCompleted()
-                    } label: {
-                        ReminderCheck(isCompleted: item.isCompleted)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(item.isReadOnly)
-                    .accessibilityLabel(item.isCompleted ? "Mark \(item.title) not done" : "Mark \(item.title) done")
-                } else {
-                    // The event's calendar color, as a stripe down the card's edge.
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(item.sourceColor)
-                        .frame(width: 4)
-                        .frame(maxHeight: .infinity)
-                        .accessibilityHidden(true)
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(item.title)
-                        .font(.body.weight(.semibold))
-                        .strikethrough(item.isCompleted)
-                        .foregroundStyle(item.isCompleted ? UD.textTertiary : UD.textPrimary)
-                    meta
-                }
-                Spacer(minLength: 0)
+        HStack(spacing: 12) {
+            card
+            if showsMoveButtons && item.isOverdue && canMove {
+                moveButtons
             }
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.vertical, 12)
-            // The checkbox has a 44 pt tap area, so reminders need less padding to line up.
-            .padding(.leading, item.kind == .event ? 12 : 4)
-            .padding(.trailing, 16)
         }
-        .contentShape(Rectangle())
-        .onTapGesture { showingDetail = true }
-        .accessibilityAddTraits(.isButton)
-        .accessibilityHint("Opens details")
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             if canMove {
                 Button {
@@ -420,7 +401,7 @@ struct TimelineRow: View {
             }
         }
         .contextMenu {
-            Button("Open", systemImage: "info.circle") { showingDetail = true }
+            Button("Open", systemImage: "info.circle") { open() }
             if item.kind == .reminder && !item.isReadOnly {
                 Button(item.isCompleted ? "Mark Not Done" : "Mark Done",
                        systemImage: item.isCompleted ? "circle" : "checkmark.circle") {
@@ -467,6 +448,78 @@ struct TimelineRow: View {
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
         .listRowInsets(EdgeInsets(top: 4, leading: UD.screenPadding, bottom: 4, trailing: UD.screenPadding))
+    }
+
+    /// Opens the details: the Mac's side panel when there is one, otherwise a sheet.
+    private func open() {
+        if let selection {
+            selection.wrappedValue = item.id
+        } else {
+            showingDetail = true
+        }
+    }
+
+    /// Mac only: quick moves for an overdue item, beside its card.
+    private var moveButtons: some View {
+        HStack(spacing: 8) {
+            Button("Today") { reschedule(to: .today) }
+            Button("Tomorrow") { reschedule(to: .tomorrow) }
+            Button("Next week") { reschedule(to: .nextWeek) }
+        }
+        .buttonStyle(UDSmallButtonStyle())
+    }
+
+    private var card: some View {
+        UDCard {
+            // The checkbox's 44 pt tap area already adds room, so reminders need less spacing.
+            HStack(spacing: item.kind == .reminder ? 2 : 12) {
+                if item.kind == .reminder {
+                    Button {
+                        toggleCompleted()
+                    } label: {
+                        ReminderCheck(isCompleted: item.isCompleted)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(item.isReadOnly)
+                    .accessibilityLabel(item.isCompleted ? "Mark \(item.title) not done" : "Mark \(item.title) done")
+                } else {
+                    // The event's calendar color, as a stripe down the card's edge.
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(item.sourceColor)
+                        .frame(width: 4)
+                        .frame(maxHeight: .infinity)
+                        .accessibilityHidden(true)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.title)
+                        .font(.body.weight(.semibold))
+                        .strikethrough(item.isCompleted)
+                        .foregroundStyle(item.isCompleted ? UD.textTertiary : UD.textPrimary)
+                    meta
+                }
+                Spacer(minLength: 0)
+                if Platform.isMac && item.isOverdue {
+                    UDBadge(text: "Overdue", tone: .error)
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.vertical, 12)
+            // The checkbox has a 44 pt tap area, so reminders need less padding to line up.
+            .padding(.leading, item.kind == .event ? 12 : 4)
+            .padding(.trailing, 16)
+        }
+        .background(isSelected ? UD.brand50 : .clear, in: RoundedRectangle(cornerRadius: UD.cardRadius, style: .continuous))
+        .overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: UD.cardRadius, style: .continuous)
+                    .strokeBorder(UD.brand600, lineWidth: 2)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { open() }
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityHint("Opens details")
     }
 
     /// Time, list or calendar, and small markers, under the title.
@@ -539,6 +592,11 @@ struct RescheduleDateSheet: View {
     }
 
     var body: some View {
+        sheetBody.udSheetSize()
+    }
+
+    @ViewBuilder
+    private var sheetBody: some View {
         NavigationStack {
             DatePicker("Day", selection: $day, displayedComponents: .date)
                 .datePickerStyle(.graphical)
@@ -615,6 +673,7 @@ struct OnboardingView: View {
             .background(UD.bgScreen)
             .udInlineTitle()
         }
+        .udSheetSize()
     }
 
     /// One permission line: a small tinted icon tile and one sentence.

@@ -32,6 +32,25 @@ enum Platform {
         #endif
     }
 
+    /// True on the Mac. For the few layout choices that aren't worth a helper.
+    static var isMac: Bool {
+        #if os(macOS)
+        true
+        #else
+        false
+        #endif
+    }
+
+    /// The round + button over the content. The Mac uses a toolbar button and
+    /// Cmd N instead.
+    static var usesFloatingAddButton: Bool {
+        #if os(iOS)
+        true
+        #else
+        false
+        #endif
+    }
+
     /// For example "iOS 26.1" or "macOS 26.1".
     @MainActor
     static var systemVersion: String {
@@ -208,6 +227,16 @@ extension View {
         listSectionSpacing(spacing)
         #else
         self
+        #endif
+    }
+
+    /// Grouped cards for forms. iPhone forms are grouped already; Mac forms default
+    /// to label columns.
+    func udGroupedFormStyle() -> some View {
+        #if os(iOS)
+        self
+        #else
+        formStyle(.grouped)
         #endif
     }
 

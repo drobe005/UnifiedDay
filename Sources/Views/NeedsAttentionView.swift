@@ -12,6 +12,11 @@ struct NeedsAttentionView: View {
     private var dueToday: [TimelineItem] { items.filter { !$0.isOverdue } }
 
     var body: some View {
+        sheetBody.udSheetSize()
+    }
+
+    @ViewBuilder
+    private var sheetBody: some View {
         NavigationStack {
             Group {
                 if !hasLoaded {

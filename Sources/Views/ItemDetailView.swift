@@ -8,6 +8,9 @@ struct ItemDetailView: View {
 
     let item: TimelineItem
     let onChange: () -> Void
+    /// Set when shown in the Mac's side panel instead of a sheet. Called on Cancel,
+    /// Save and Delete, and the panel draws its own header.
+    var onClose: (() -> Void)?
 
     @State private var title: String
     @State private var notes: String
@@ -24,9 +27,10 @@ struct ItemDetailView: View {
     @State private var showingNewNote = false
     @State private var showingNotePicker = false
 
-    init(item: TimelineItem, onChange: @escaping () -> Void) {
+    init(item: TimelineItem, onChange: @escaping () -> Void, onClose: (() -> Void)? = nil) {
         self.item = item
         self.onChange = onChange
+        self.onClose = onClose
         let start = item.startDate ?? Calendar.current.startOfDay(for: .now)
         _title = State(initialValue: item.title)
         _notes = State(initialValue: item.notes ?? "")
@@ -47,7 +51,54 @@ struct ItemDetailView: View {
     private var trimmedTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
-        NavigationStack {
+        if onClose != nil {
+            VStack(spacing: 0) {
+                panelHeader
+                form
+            }
+            .background(UD.bgGrouped)
+        } else {
+            NavigationStack {
+                form
+                    .navigationTitle(isEvent ? "Event" : "Reminder")
+                    .udInlineTitle()
+                    .toolbar { toolbar }
+            }
+            .udSheetSize()
+        }
+    }
+
+    /// Cancel, the title and Save, for the Mac's side panel.
+    private var panelHeader: some View {
+        ZStack {
+            Text(isEvent ? "Event" : "Reminder")
+                .font(.headline)
+                .foregroundStyle(UD.textPrimary)
+            HStack {
+                Button(item.isReadOnly ? "Close" : "Cancel") { close() }
+                    .buttonStyle(.plain)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(UD.textSecondary)
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                if !item.isReadOnly {
+                    Button("Save") { saveTapped() }
+                        .buttonStyle(UDSmallButtonStyle(prominent: true))
+                        .disabled(trimmedTitle.isEmpty)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(UD.bgCard)
+        .overlay(alignment: .bottom) { UDDivider() }
+    }
+
+    private func close() {
+        if let onClose { onClose() } else { dismiss() }
+    }
+
+    private var form: some View {
             Form {
                 if item.isReadOnly {
                     readOnlyContent
@@ -105,9 +156,6 @@ struct ItemDetailView: View {
             }
             .udFormBackground()
             .tint(UD.brand600)
-            .navigationTitle(isEvent ? "Event" : "Reminder")
-            .udInlineTitle()
-            .toolbar { toolbar }
             .sheet(isPresented: $showingNewNote) {
                 ComposerView(initialKind: .note, attachingTo: item)
             }
@@ -142,7 +190,6 @@ struct ItemDetailView: View {
                     Text(isEvent ? "It will also be removed from Apple Calendar." : "It will also be removed from Apple Reminders.")
                 }
             }
-        }
     }
 
     // MARK: - Content
@@ -151,6 +198,7 @@ struct ItemDetailView: View {
     private var editableContent: some View {
         Section {
             TextField("Add a title", text: $title)
+                .labelsHidden()
                 .foregroundStyle(UD.textPrimary)
         } header: {
             UDFormHeader(title: "Title")
@@ -187,6 +235,7 @@ struct ItemDetailView: View {
 
         Section {
             TextField("Optional", text: $notes, axis: .vertical)
+                .labelsHidden()
                 .lineLimit(4...10)
         } header: {
             UDFormHeader(title: "Apple notes")
@@ -234,11 +283,11 @@ struct ItemDetailView: View {
     private var toolbar: some ToolbarContent {
         if item.isReadOnly {
             ToolbarItem(placement: .confirmationAction) {
-                UDToolbarConfirmButton(title: "Done") { dismiss() }
+                UDToolbarConfirmButton(title: "Done") { close() }
             }
         } else {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
+                Button("Cancel") { close() }
             }
             ToolbarItem(placement: .confirmationAction) {
                 UDToolbarConfirmButton { saveTapped() }
@@ -291,7 +340,7 @@ struct ItemDetailView: View {
         }
         if saved {
             onChange()
-            dismiss()
+            close()
         } else {
             saveError = eventKit.lastError ?? "Couldn't save. Try again."
         }
@@ -300,6 +349,6 @@ struct ItemDetailView: View {
     private func delete(includingFuture: Bool = false) {
         eventKit.delete(item, includingFuture: includingFuture)
         onChange()
-        dismiss()
+        close()
     }
 }

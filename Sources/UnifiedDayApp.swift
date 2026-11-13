@@ -72,6 +72,11 @@ extension EnvironmentValues {
     @Entry var noteLinkKeys: Set<String> = []
     /// Set by screens that have their own Save button, so the floating + steps aside.
     @Entry var composerButtonHidden: Binding<Bool> = .constant(false)
+    /// Mac only: the selected timeline row. When set, a click selects the row for the
+    /// details panel instead of opening a sheet.
+    @Entry var timelineSelection: Binding<String?>? = nil
+    /// Mac only: overdue rows show Today, Tomorrow and Next week buttons beside the card.
+    @Entry var timelineShowsMoveButtons = false
 }
 
 @main
@@ -89,6 +94,7 @@ struct UnifiedDayApp: App {
             RootView(storageError: storage.error)
         }
         .modelContainer(storage.container)
+        .udMacWindow()
     }
 }
 
@@ -112,32 +118,16 @@ struct RootView: View {
     }
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            ForEach(AppTab.order(from: tabOrder)) { tab in
-                Tab(tab.title, systemImage: tab.systemImage, value: tab) {
-                    screen(for: tab)
-                }
-            }
-            Tab(AppTab.settings.title, systemImage: AppTab.settings.systemImage, value: AppTab.settings) {
-                SettingsView()
-            }
-        }
-        // iOS keeps some old tab icons when tabs swap places, even with the Tab API.
-        // A new identity per order rebuilds the tab bar so every icon matches its title.
-        .id(tabOrder)
+        screens
         .tint(UD.brand600)
         .environment(eventKit)
         .environment(\.noteLinkKeys, noteLinkKeys)
         .environment(\.composerButtonHidden, $composerButtonHidden)
         .overlay(alignment: .bottomTrailing) {
             // Hidden on Settings: nothing to add there, and it covered the last rows.
-            if !composerButtonHidden && selectedTab != .settings
-                && (eventKit.accessGranted || selectedTab == .notes) {
+            if Platform.usesFloatingAddButton && canAdd {
                 Button {
-                    composerRequest = ComposerRequest(
-                        date: composerDate,
-                        kind: selectedTab == .notes ? .note : .reminder
-                    )
+                    newItem()
                 } label: {
                     Image(systemName: "plus")
                         .font(.title2.weight(.semibold))
@@ -161,6 +151,13 @@ struct RootView: View {
             }
         }
         .animation(.default, value: eventKit.lastError)
+        .udMacWindowContent(
+            undoTitle: eventKit.lastUndo?.title,
+            undoID: eventKit.lastUndo?.id,
+            undo: undo
+        )
+        .environment(\.appActions, appActions)
+        .focusedSceneValue(\.appCommands, appActions)
         .sheet(item: $eventKit.alertItemToOpen) { item in
             ItemDetailView(item: item) {}
                 .environment(eventKit)
@@ -198,6 +195,54 @@ struct RootView: View {
                 eventKit.refreshOnForeground()
             }
         }
+    }
+
+    /// The tabs on iPhone; the sidebar layout from the Figma Mac page on the Mac.
+    @ViewBuilder
+    private var screens: some View {
+        #if os(macOS)
+        MacRootView(selectedTab: $selectedTab, calendarDay: $calendarDay, tabs: AppTab.order(from: tabOrder))
+        #else
+        TabView(selection: $selectedTab) {
+            ForEach(AppTab.order(from: tabOrder)) { tab in
+                Tab(tab.title, systemImage: tab.systemImage, value: tab) {
+                    screen(for: tab)
+                }
+            }
+            Tab(AppTab.settings.title, systemImage: AppTab.settings.systemImage, value: AppTab.settings) {
+                SettingsView()
+            }
+        }
+        // iOS keeps some old tab icons when tabs swap places, even with the Tab API.
+        // A new identity per order rebuilds the tab bar so every icon matches its title.
+        .id(tabOrder)
+        #endif
+    }
+
+    /// What the Mac menus and header buttons act on.
+    private var appActions: AppCommandActions {
+        AppCommandActions(
+            tabs: AppTab.order(from: tabOrder),
+            canAdd: canAdd,
+            newItem: newItem,
+            refresh: { eventKit.refreshOnForeground() },
+            select: { selectedTab = $0 }
+        )
+    }
+
+    /// Whether + (or New on the Mac) can add something right now. Not on Settings,
+    /// and only notes until calendar access is granted.
+    private var canAdd: Bool {
+        !composerButtonHidden && selectedTab != .settings
+            && (eventKit.accessGranted || selectedTab == .notes)
+    }
+
+    private func newItem() {
+        guard canAdd else { return }
+        composerRequest = ComposerRequest(
+            date: composerDate,
+            kind: selectedTab == .notes ? .note : .reminder
+        )
     }
 
     @ViewBuilder

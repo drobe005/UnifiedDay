@@ -10,6 +10,9 @@ struct NoteEditorView: View {
     @Environment(\.composerButtonHidden) private var composerButtonHidden
 
     let note: Note
+    /// Set when shown beside the notes list on the Mac. The pane draws its own top
+    /// bar, and closing it (after Delete) calls this instead of going back.
+    var onClose: (() -> Void)?
 
     @State private var showingItemPicker = false
     @State private var viewingImage: NoteImage?
@@ -21,9 +24,87 @@ struct NoteEditorView: View {
     @State private var deleteOnClose = false
 
     var body: some View {
+        if onClose != nil {
+            VStack(spacing: 0) {
+                paneBar
+                form
+            }
+            .background(UD.bgGrouped)
+        } else {
+            form
+                .navigationTitle("Note")
+                .udInlineTitle()
+                .toolbar {
+                    ToolbarItemGroup(placement: .udTrailing) {
+                        ShareLink(item: note.shareText)
+                            .disabled(note.shareText.isEmpty)
+                        Button {
+                            note.isPinned.toggle()
+                        } label: {
+                            Image(systemName: note.isPinned ? "pin.slash" : "pin")
+                        }
+                        .accessibilityLabel(note.isPinned ? "Unpin" : "Pin")
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        UDToolbarConfirmButton {
+                            modelContext.saveNotes(reportingTo: eventKit)
+                            dismiss()
+                        }
+                    }
+                }
+                .onAppear { composerButtonHidden.wrappedValue = true }
+        }
+    }
+
+    /// Pin, share, delete and Save, across the top of the Mac's editor pane. The
+    /// formatting buttons sit at the top of the note text.
+    private var paneBar: some View {
+        HStack(spacing: 16) {
+            Spacer()
+            Button {
+                note.isPinned.toggle()
+                modelContext.saveNotes(reportingTo: eventKit)
+            } label: {
+                Image(systemName: note.isPinned ? "pin.slash" : "pin")
+            }
+            .help(note.isPinned ? "Unpin" : "Pin")
+            .accessibilityLabel(note.isPinned ? "Unpin" : "Pin")
+            ShareLink(item: note.shareText) {
+                Image(systemName: "square.and.arrow.up")
+            }
+            .disabled(note.shareText.isEmpty)
+            .help("Share")
+            Button {
+                confirmingDelete = true
+            } label: {
+                Image(systemName: "trash")
+            }
+            .help("Delete Note")
+            .accessibilityLabel("Delete Note")
+            Button("Save") {
+                modelContext.saveNotes(reportingTo: eventKit)
+            }
+            .buttonStyle(UDSmallButtonStyle(prominent: true))
+            .keyboardShortcut("s")
+        }
+        .buttonStyle(.plain)
+        .font(.title3)
+        .foregroundStyle(UD.textSecondary)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(UD.bgCard)
+        .overlay(alignment: .bottom) { UDDivider() }
+    }
+
+    private func close() {
+        if let onClose { onClose() } else { dismiss() }
+    }
+
+    private var form: some View {
         Form {
             Section {
                 TextField("Title", text: edit(\.title))
+                    .labelsHidden()
                     .font(.title3.weight(.bold))
                     .foregroundStyle(UD.textPrimary)
                 if #available(iOS 26.0, macOS 26.0, *) {
@@ -69,31 +150,10 @@ struct NoteEditorView: View {
             }
         }
         .udFormBackground()
-        .navigationTitle("Note")
-        .udInlineTitle()
-        .toolbar {
-            ToolbarItemGroup(placement: .udTrailing) {
-                ShareLink(item: note.shareText)
-                    .disabled(note.shareText.isEmpty)
-                Button {
-                    note.isPinned.toggle()
-                } label: {
-                    Image(systemName: note.isPinned ? "pin.slash" : "pin")
-                }
-                .accessibilityLabel(note.isPinned ? "Unpin" : "Pin")
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                UDToolbarConfirmButton {
-                    modelContext.saveNotes(reportingTo: eventKit)
-                    dismiss()
-                }
-            }
-        }
-        .onAppear { composerButtonHidden.wrappedValue = true }
         .confirmationDialog("Delete this note?", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
                 deleteOnClose = true
-                dismiss()
+                close()
             }
         } message: {
             Text("Events and reminders it's attached to won't change.")
@@ -168,6 +228,36 @@ struct RichNoteEditor: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if Platform.isMac {
+                macFormatBar
+            }
+            editor
+        }
+    }
+
+    /// The Mac has no keyboard toolbar, so the same buttons sit above the text.
+    private var macFormatBar: some View {
+        HStack(spacing: 16) {
+            formatButton("Heading", "textformat.size.larger", on: current.heading) { $0.heading.toggle() }
+            Divider().frame(height: 16)
+            formatButton("Bold", "bold", on: current.bold) { $0.bold.toggle() }
+            formatButton("Italic", "italic", on: current.italic) { $0.italic.toggle() }
+            formatButton("Underline", "underline", on: current.underline) { $0.underline.toggle() }
+            formatButton("Strikethrough", "strikethrough", on: current.strikethrough) { $0.strikethrough.toggle() }
+            Divider().frame(height: 16)
+            Button("Bulleted list", systemImage: "list.bullet", action: toggleBullet)
+                .labelStyle(.iconOnly)
+            Button("Checklist", systemImage: "checklist", action: toggleChecklist)
+                .labelStyle(.iconOnly)
+        }
+        .buttonStyle(.plain)
+        .font(.title3)
+        .foregroundStyle(UD.textSecondary)
+        .padding(.bottom, 4)
+    }
+
+    private var editor: some View {
         TextEditor(text: $text, selection: $selection)
             .focused($isFocused)
             .frame(minHeight: 200)
@@ -446,6 +536,11 @@ struct ItemPickerView: View {
     }
 
     var body: some View {
+        sheetBody.udSheetSize()
+    }
+
+    @ViewBuilder
+    private var sheetBody: some View {
         NavigationStack {
             List(visibleItems) { item in
                 row(item)
@@ -598,6 +693,11 @@ struct NotePickerView: View {
     }
 
     var body: some View {
+        sheetBody.udSheetSize()
+    }
+
+    @ViewBuilder
+    private var sheetBody: some View {
         NavigationStack {
             List(available) { note in
                 Button {
@@ -819,6 +919,11 @@ struct NoteImageViewer: View {
     let onDelete: () -> Void
 
     var body: some View {
+        sheetBody.udSheetSize()
+    }
+
+    @ViewBuilder
+    private var sheetBody: some View {
         NavigationStack {
             SwiftUI.Group {
                 if let data = image.data, let full = PlatformImage(data: data) {

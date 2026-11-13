@@ -354,6 +354,43 @@ struct UDSecondaryButtonStyle: ButtonStyle {
     }
 }
 
+/// Compact outlined button, for toolbars and quick actions on the Mac.
+struct UDSmallButtonStyle: ButtonStyle {
+    var prominent = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        SmallLabel(configuration: configuration, prominent: prominent)
+    }
+
+    private struct SmallLabel: View {
+        let configuration: Configuration
+        let prominent: Bool
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .font(.subheadline.weight(.semibold))
+                .labelStyle(.titleAndIcon)
+                .foregroundStyle(prominent ? Color.white : UD.textStrong)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(
+                    prominent ? UD.brand600 : (configuration.isPressed ? UD.bgSubtle : UD.bgCard),
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                )
+                .overlay {
+                    if !prominent {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(UD.borderPrimary)
+                    }
+                }
+                .shadow(color: .black.opacity(0.05), radius: 1, y: 1)
+                .opacity(isEnabled ? (configuration.isPressed ? 0.85 : 1) : 0.5)
+                .contentShape(Rectangle())
+        }
+    }
+}
+
 /// Full-width outlined red button, for Delete at the bottom of a screen.
 struct UDDestructiveButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
@@ -452,6 +489,7 @@ extension View {
     func udFormBackground() -> some View {
         scrollContentBackground(.hidden)
             .background(UD.bgGrouped)
+            .udGroupedFormStyle()
     }
 
     /// Card color for the rows of a grouped form section.

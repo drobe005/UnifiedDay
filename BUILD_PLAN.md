@@ -141,6 +141,10 @@ enough to keep open while working. Not the final Mac layout.
    Seen in step 1: the default window is small, so the onboarding sheet's
    button is cut off; cards stretch the full width; the floating + button sits
    over the list. Fix these here.
+   (built 2026-11-13, checked on the MacBook Pro: sidebar, New button and
+   File > New Item, View > Today to Notes and Refresh, Settings from the app menu,
+   a centered 760-point column, Mac sheets sized and grouped like the iPhone.
+   Not yet tried: Cmd Z after a real change, and a day of real use.)
    Acceptance: a day of real use at the desk without reaching for the iPhone for
    anything the iPhone app can do.
 3. Notes match the iPhone. A Mac build run from Xcode reads iCloud's development
@@ -157,6 +161,17 @@ loss or sync surprises.
 ### 7B - Full Mac layout (after the iOS beta)
 
 Follows the mockup screen by screen.
+
+Pulled forward on 2026-11-13 at the owner's request, from the Figma page "Mac app
+(Untitled UI)". Built and checked on the MacBook Pro: a sidebar with search, the
+four screens, a mini month and Settings, and no title bar; Today with the details
+panel and Today, Tomorrow and Next week buttons on overdue items; Calendar month
+and week grids with the day list beside them; Reminders as one column per list;
+Notes as list plus editor with the formatting bar on top. Mac text uses the
+system sizes (smaller than Figma's 16 px) and SF Symbols, not Untitled UI icons.
+Still open from the list below: Cmd F for search, Settings as its own window,
+the bell as a popover (it is a sheet), hover buttons on every row, dragging
+photos in, the Dock badge, and checking dark mode.
 
 1. Sidebar extras: search (Cmd F) and the mini month. Settings as a standard Mac
    settings window.

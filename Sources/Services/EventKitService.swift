@@ -433,13 +433,16 @@ final class EventKitService {
     /// iOS only updates it while the app runs, so it can lag until the next open.
     func refreshBadge() async {
         var count = 0
-        if accessGranted, UserDefaults.standard.bool(forKey: Self.badgeEnabledKey) {
+        let enabled = accessGranted && UserDefaults.standard.bool(forKey: Self.badgeEnabledKey)
+        if enabled {
             count = await fetchNeedsAttention().count
         }
         do {
             try await UNUserNotificationCenter.current().setBadgeCount(count)
         } catch {
-            lastError = error.localizedDescription
+            // Clearing a badge that was never allowed fails on the Mac. Only a badge
+            // the person turned on is worth an error.
+            if enabled { lastError = error.localizedDescription }
         }
     }
 
@@ -913,6 +916,7 @@ struct UndoAction {
         case delete
     }
 
+    let id = UUID()
     let change: Change
     let item: TimelineItem
 

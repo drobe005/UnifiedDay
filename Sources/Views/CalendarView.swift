@@ -270,6 +270,12 @@ struct CalendarView: View {
     }
 
     private func title(for day: Date) -> String {
+        Self.title(for: day)
+    }
+
+    /// "Today", "Tomorrow", or the weekday and date.
+    static func title(for day: Date) -> String {
+        let calendar = Calendar.current
         if calendar.isDateInToday(day) { return "Today" }
         if calendar.isDateInTomorrow(day) { return "Tomorrow" }
         return day.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
@@ -277,6 +283,11 @@ struct CalendarView: View {
 
     /// The days the list covers when showing more than one day. Nil for one day.
     private var range: Range<Date>? {
+        Self.range(scope: scope, mode: mode, selectedDay: selectedDay, customStart: customStart, customEnd: customEnd)
+    }
+
+    static func range(scope: Scope, mode: Mode, selectedDay: Date, customStart: Date, customEnd: Date) -> Range<Date>? {
+        let calendar = Calendar.current
         switch scope {
         case .day:
             return nil
@@ -298,6 +309,11 @@ struct CalendarView: View {
 
     private var rangeTitle: String {
         guard let range else { return dayTitle }
+        return Self.title(for: range)
+    }
+
+    /// "Nov 3 to Nov 9".
+    static func title(for range: Range<Date>) -> String {
         let last = range.upperBound.addingTimeInterval(-1)
         return "\(range.lowerBound.formatted(.dateTime.month(.abbreviated).day())) to \(last.formatted(.dateTime.month(.abbreviated).day()))"
     }
@@ -310,8 +326,13 @@ struct CalendarView: View {
     /// Items grouped by day. Multi-day events show on each day they cover.
     private var rangeDays: [(day: Date, items: [TimelineItem])] {
         guard let range else { return [] }
+        return Self.groupByDay(rangeItems.filter(kind.includes), in: range)
+    }
+
+    static func groupByDay(_ items: [TimelineItem], in range: Range<Date>) -> [(day: Date, items: [TimelineItem])] {
+        let calendar = Calendar.current
         var byDay: [Date: [TimelineItem]] = [:]
-        for item in rangeItems where kind.includes(item) {
+        for item in items {
             guard let start = item.startDate else { continue }
             let last = max(start, (item.endDate ?? start).addingTimeInterval(item.endDate == nil ? 0 : -1))
             var day = calendar.startOfDay(for: max(start, range.lowerBound))
@@ -326,6 +347,11 @@ struct CalendarView: View {
 
     /// Whole weeks: seven days in week mode, every week the month touches in month mode.
     private var visibleDays: [Date] {
+        Self.visibleDays(mode: mode, selectedDay: selectedDay)
+    }
+
+    static func visibleDays(mode: Mode, selectedDay: Date) -> [Date] {
+        let calendar = Calendar.current
         let start: Date?
         let end: Date?
         if mode == .week {
@@ -350,15 +376,21 @@ struct CalendarView: View {
     }
 
     private func shiftPeriod(by amount: Int) {
+        selectedDay = Self.shifted(selectedDay, mode: mode, by: amount)
+    }
+
+    /// The day selected after moving a week or month forward or back.
+    static func shifted(_ selectedDay: Date, mode: Mode, by amount: Int) -> Date {
+        let calendar = Calendar.current
         let unit: Calendar.Component = mode == .week ? .weekOfYear : .month
-        guard let day = calendar.date(byAdding: unit, value: amount, to: selectedDay) else { return }
+        guard let day = calendar.date(byAdding: unit, value: amount, to: selectedDay) else { return selectedDay }
         if mode == .week {
-            selectedDay = calendar.startOfDay(for: day)
+            return calendar.startOfDay(for: day)
         } else if calendar.isDate(day, equalTo: .now, toGranularity: .month) {
-            selectedDay = calendar.startOfDay(for: .now)
+            return calendar.startOfDay(for: .now)
         } else {
             // A new month opens on its 1st, not on whatever date it shifted to.
-            selectedDay = calendar.dateInterval(of: .month, for: day)?.start ?? day
+            return calendar.dateInterval(of: .month, for: day)?.start ?? day
         }
     }
 

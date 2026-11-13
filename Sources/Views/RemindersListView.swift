@@ -30,7 +30,8 @@ struct RemindersListView: View {
         }
     }
 
-    private struct Group {
+    /// One Apple Reminders list and its reminders.
+    struct ListGroup {
         let id: String
         let name: String
         var items: [TimelineItem]
@@ -38,7 +39,7 @@ struct RemindersListView: View {
 
     @Environment(EventKitService.self) private var eventKit
     @Query private var notes: [Note]
-    @State private var grouped: [Group] = []
+    @State private var grouped: [ListGroup] = []
     @State private var searchText = ""
     @State private var hasLoaded = false
     @State private var isNamingList = false
@@ -153,12 +154,23 @@ struct RemindersListView: View {
         }
     }
 
-    /// Empty lists only show with no filter or search, so new lists appear right away.
-    private var filtered: [Group] {
+    private var filtered: [ListGroup] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let showEmpty = filter == .all && query.isEmpty
         // Reminders with an attached UnifiedDay note that matches, not just Apple notes.
         let noteLinks = query.isEmpty ? [] : notes.filter { $0.matches(query) }.flatMap { $0.links ?? [] }
+        return Self.arrange(grouped, filter: filter, sort: sort, query: query, noteLinks: noteLinks)
+    }
+
+    /// Applies the filter, search and sort. Empty lists only show with no filter or
+    /// search, so new lists appear right away.
+    static func arrange(
+        _ grouped: [ListGroup],
+        filter: Filter,
+        sort: Sort,
+        query: String,
+        noteLinks: [NoteLink]
+    ) -> [ListGroup] {
+        let showEmpty = filter == .all && query.isEmpty
         return grouped.compactMap { group in
             let matches = group.items
                 .filter(filter.includes)
@@ -173,7 +185,7 @@ struct RemindersListView: View {
             case .created: matches.sorted { ($0.createdDate ?? .distantPast) > ($1.createdDate ?? .distantPast) }
             case .title: matches.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
             }
-            return sorted.isEmpty && !showEmpty ? nil : Group(id: group.id, name: group.name, items: sorted)
+            return sorted.isEmpty && !showEmpty ? nil : ListGroup(id: group.id, name: group.name, items: sorted)
         }
     }
 
@@ -188,6 +200,11 @@ struct RemindersListView: View {
     private func load() async {
         guard eventKit.accessGranted else { return }
         defer { hasLoaded = true }
+        grouped = await Self.loadGroups(from: eventKit)
+    }
+
+    /// Every Apple Reminders list with its open reminders, sorted by list name.
+    static func loadGroups(from eventKit: EventKitService) async -> [ListGroup] {
         // All incomplete reminders, then keep dateless ones plus anything due
         // within the next 30 days. Grouped by list for the tab layout.
         let all = await eventKit.fetchAllIncompleteReminders()
@@ -199,9 +216,9 @@ struct RemindersListView: View {
         }
 
         let byList = Dictionary(grouping: relevant, by: \.sourceID)
-        grouped = eventKit.reminderLists()
+        return eventKit.reminderLists()
             .map { list in
-                Group(
+                ListGroup(
                     id: list.calendarIdentifier,
                     name: list.title,
                     items: EventKitService.sortItems(byList[list.calendarIdentifier] ?? [])

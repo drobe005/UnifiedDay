@@ -48,6 +48,11 @@ struct ComposerView: View {
     }
 
     var body: some View {
+        sheetBody.udSheetSize()
+    }
+
+    @ViewBuilder
+    private var sheetBody: some View {
         NavigationStack {
             Form {
                 if attachedItem == nil {
