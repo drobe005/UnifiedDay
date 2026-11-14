@@ -114,20 +114,19 @@ struct ItemDetailView: View {
             .sheet(isPresented: $showingNotePicker) {
                 NotePickerView(item: item)
             }
-            .confirmationDialog(
+            .alert(
                 "Save changes to this repeating event?",
-                isPresented: $choosingSaveSpan,
-                titleVisibility: .visible
+                isPresented: $choosingSaveSpan
             ) {
                 Button("Save for This Event Only") { save() }
                 Button("Save for All Future Events") { save(includingFuture: true) }
+                Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Changes will also show in Apple Calendar.")
             }
-            .confirmationDialog(
+            .alert(
                 "Delete this \(isEvent ? "event" : "reminder")?",
-                isPresented: $confirmingDelete,
-                titleVisibility: .visible
+                isPresented: $confirmingDelete
             ) {
                 if item.isRepeatingEvent {
                     Button("Delete This Event Only", role: .destructive) { delete() }
@@ -135,6 +134,7 @@ struct ItemDetailView: View {
                 } else {
                     Button("Delete", role: .destructive) { delete() }
                 }
+                Button("Cancel", role: .cancel) {}
             } message: {
                 if item.isRepeatingEvent {
                     Text("This is a repeating event. It will also be removed from Apple Calendar.")

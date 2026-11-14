@@ -445,13 +445,14 @@ struct TimelineRow: View {
                 }
             }
         }
-        .confirmationDialog(deleteTitle, isPresented: $confirmingDelete, titleVisibility: .visible) {
+        .alert(deleteTitle, isPresented: $confirmingDelete) {
             if item.isRepeatingEvent {
                 Button("Delete This Event Only", role: .destructive) { delete() }
                 Button("Delete All Future Events", role: .destructive) { delete(includingFuture: true) }
             } else {
                 Button("Delete", role: .destructive) { delete() }
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("It will also be removed from Apple \(item.kind == .reminder ? "Reminders" : "Calendar").")
         }

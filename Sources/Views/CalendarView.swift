@@ -129,6 +129,7 @@ struct CalendarView: View {
             visibleDays.first?.timeIntervalSince1970 ?? 0,
             Double(visibleDays.count),
             Double(eventKit.changeCount),
+            Double(Kind.allCases.firstIndex(of: kind) ?? 0),
         ]) {
             await loadMarks()
         }
@@ -391,7 +392,13 @@ struct CalendarView: View {
         guard let first = visibleDays.first,
               let last = visibleDays.last,
               let end = calendar.date(byAdding: .day, value: 1, to: last) else { return }
-        let marks = await eventKit.daysWithItems(from: first, to: end)
+        // Dots follow the Include menu, so a day only gets one when the list would show something.
+        let marks = await eventKit.daysWithItems(
+            from: first,
+            to: end,
+            events: kind != .reminders,
+            reminders: kind != .events
+        )
         guard !Task.isCancelled else { return }
         markedDays = marks
     }

@@ -102,10 +102,15 @@ final class EventKitService {
 
     /// The start of every day in the range that has an event or an open reminder.
     /// Multi-day events mark each day they touch. Used for the calendar dots.
-    func daysWithItems(from start: Date, to end: Date) async -> Set<Date> {
+    func daysWithItems(
+        from start: Date,
+        to end: Date,
+        events includeEvents: Bool = true,
+        reminders includeReminders: Bool = true
+    ) async -> Set<Date> {
         let calendar = Calendar.current
         var days = Set<Date>()
-        for event in fetchEvents(start: start, end: end) {
+        for event in includeEvents ? fetchEvents(start: start, end: end) : [] {
             guard let eventStart = event.startDate else { continue }
             // An event ending exactly at midnight does not touch the next day.
             let last = max(eventStart, (event.endDate ?? eventStart).addingTimeInterval(-1))
@@ -116,7 +121,7 @@ final class EventKitService {
                 day = next
             }
         }
-        for reminder in await fetchRemindersDue(before: end) {
+        for reminder in includeReminders ? await fetchRemindersDue(before: end) : [] {
             if let due = reminder.startDate, due >= start, due < end {
                 days.insert(calendar.startOfDay(for: due))
             }

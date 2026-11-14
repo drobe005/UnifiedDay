@@ -90,11 +90,12 @@ struct NoteEditorView: View {
             }
         }
         .onAppear { composerButtonHidden.wrappedValue = true }
-        .confirmationDialog("Delete this note?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+        .alert("Delete this note?", isPresented: $confirmingDelete) {
             Button("Delete", role: .destructive) {
                 deleteOnClose = true
                 dismiss()
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("Events and reminders it's attached to won't change.")
         }
