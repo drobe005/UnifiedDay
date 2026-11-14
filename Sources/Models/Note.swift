@@ -141,7 +141,18 @@ enum NoteStorage {
     static func makeContainer() -> (container: ModelContainer, error: String?) {
         let schema = Schema([Note.self, NoteLink.self, NoteFolder.self, NoteImage.self])
         do {
+            #if os(macOS)
+            // The Mac reads the same iCloud notes as the TestFlight iPhone app (production),
+            // so it keeps them in their own file, apart from the test notes earlier Mac
+            // builds synced with iCloud's development space.
+            let configuration = ModelConfiguration(
+                schema: schema,
+                url: URL.applicationSupportDirectory.appending(path: "Notes-Production.store"),
+                cloudKitDatabase: .automatic
+            )
+            #else
             let configuration = ModelConfiguration(schema: schema, cloudKitDatabase: .automatic)
+            #endif
             return (try ModelContainer(for: schema, configurations: configuration), nil)
         } catch {
             let memory = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true, cloudKitDatabase: .none)
