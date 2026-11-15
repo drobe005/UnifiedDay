@@ -134,3 +134,24 @@ blocks spread through the views. No new dependencies.
 Acceptance per step: works on the Mac with real calendar and reminder data in
 light and dark mode, and the iPhone app still builds and behaves the same. Phase
 done after a week of daily use on the Mac with no data loss or sync surprises.
+
+## Phase 8 - Widgets (branch `widgets`, built 2026-11-15, not yet merged)
+
+Home Screen and Lock Screen widgets from the Figma page "Widgets". A new
+`UnifiedDayWidgets` extension lives in `Widgets/` with its own copy of the colors.
+
+- Today: small (Up next), medium (Up next plus 3 rows), large (Up next, Overdue,
+  Later today), Lock Screen rectangle and inline line.
+- Needs Attention: small, Lock Screen circle.
+- Month: small grid, medium day plus month. Days link to Calendar.
+- Day Progress: Lock Screen circle with events left and a 7 AM to 10 PM ring.
+- Check circles on reminder rows complete the reminder from the widget.
+- Taps open the app through `unifiedday://` links (today, attention, calendar,
+  new, item). The app reloads widgets whenever calendar data changes.
+
+Decisions: the widget reads EventKit directly because it runs in its own process
+(the one exception to "only EventKitService talks to EKEventStore"). No notes
+count, since notes live in SwiftData and sharing them would need an App Group.
+
+Acceptance: widgets show real data on the iPhone, refresh after edits in the app
+or in Apple's apps, and the check circle completes the reminder.

@@ -89,6 +89,12 @@ struct TodayView: View {
                 NeedsAttentionView()
                     .environment(eventKit)
             }
+            .onChange(of: eventKit.attentionRequested, initial: true) { _, requested in
+                // A tap on the Needs Attention widget.
+                guard requested else { return }
+                eventKit.attentionRequested = false
+                if eventKit.accessGranted { showingAttention = true }
+            }
             .onChange(of: eventKit.accessGranted) { _, granted in
                 if granted {
                     showingOnboarding = false

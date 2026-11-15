@@ -1,6 +1,7 @@
 import SwiftData
 import SwiftUI
 import UserNotifications
+import WidgetKit
 
 enum AppTab: String, CaseIterable, Identifiable {
     case today, calendar, reminders, notes, settings
@@ -190,6 +191,11 @@ struct RootView: View {
         }
         .task(id: eventKit.changeCount) {
             await eventKit.refreshAlerts()
+            // Home and Lock Screen widgets read the same data, so refresh them too.
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+        .onOpenURL { url in
+            openWidgetLink(url)
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
@@ -206,6 +212,30 @@ struct RootView: View {
         case .reminders: RemindersListView()
         case .notes: NotesListView()
         case .settings: SettingsView()
+        }
+    }
+
+    /// Handles taps on widgets. Links look like unifiedday://today.
+    private func openWidgetLink(_ url: URL) {
+        guard url.scheme == "unifiedday" else { return }
+        switch url.host() {
+        case "attention":
+            selectedTab = .today
+            eventKit.attentionRequested = true
+        case "calendar":
+            let seconds = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "day" }?.value.flatMap(Double.init)
+            calendarDay = Calendar.current.startOfDay(for: seconds.map(Date.init(timeIntervalSince1970:)) ?? .now)
+            selectedTab = .calendar
+        case "new":
+            composerRequest = ComposerRequest(date: .now, kind: .reminder)
+        case "item":
+            selectedTab = .today
+            if let target = AlertTarget(url: url) {
+                eventKit.open(target)
+            }
+        default:
+            selectedTab = .today
         }
     }
 

@@ -35,6 +35,8 @@ final class EventKitService {
     private(set) var changeCount = 0
     /// The event or reminder behind a tapped alert. The root view shows its details.
     var alertItemToOpen: TimelineItem?
+    /// Set when a widget asks for Needs Attention. Today opens the sheet and clears it.
+    var attentionRequested = false
     /// The last change a shake can undo. Nil when there's nothing to undo.
     private(set) var lastUndo: UndoAction?
 
@@ -941,6 +943,18 @@ struct AlertTarget: Sendable {
         kind = item.kind
         storeID = item.storeIdentifier
         occurrence = item.occurrenceDate
+    }
+
+    /// Reads a widget link like unifiedday://item?kind=event&id=...&occ=...
+    init?(url: URL) {
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        func value(_ name: String) -> String? { query.first { $0.name == name }?.value }
+        guard let kind = value("kind").flatMap(TimelineItemKind.init(rawValue:)),
+              let storeID = value("id"), !storeID.isEmpty
+        else { return nil }
+        self.kind = kind
+        self.storeID = storeID
+        occurrence = value("occ").flatMap(Double.init).map(Date.init(timeIntervalSince1970:))
     }
 
     init?(userInfo: [AnyHashable: Any]) {
