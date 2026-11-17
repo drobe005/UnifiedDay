@@ -46,14 +46,16 @@ struct TodayView: View {
                     timelineList
                 }
             }
-            .navigationTitle(Date.now.formatted(
-                .dateTime.weekday(typeSize.isAccessibilitySize ? .abbreviated : .wide).month(.abbreviated).day()
-            ))
+            .navigationTitle("Today")
             .searchable(text: $searchText, prompt: "Search items and notes")
+            .udMinimizedSearch()
             .task(id: trimmedSearch) {
                 await runSearch()
             }
             .toolbar {
+                UDOverlineToolbarItem(text: Date.now.formatted(
+                    .dateTime.weekday(typeSize.isAccessibilitySize ? .abbreviated : .wide).month(.abbreviated).day()
+                ))
                 if eventKit.accessGranted {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
@@ -119,7 +121,7 @@ struct TodayView: View {
                 Section {
                     if !isCollapsed(section.title) {
                         ForEach(section.items) { item in
-                            TimelineRow(item: item) {
+                            TimelineRow(item: item, showsDivider: item.id != section.items.last?.id) {
                                 Task { await load() }
                             } onRemove: { removed, target in
                                 // Rescheduling to today keeps the row; the reload moves it.
@@ -130,11 +132,10 @@ struct TodayView: View {
                     }
                 } header: {
                     // The day's summary rides in the first header, so it sits right
-                    // under the search bar without an extra list gap.
-                    VStack(alignment: .leading, spacing: 12) {
+                    // under the title without an extra list gap.
+                    VStack(alignment: .leading, spacing: 8) {
                         if section.title == sections.first?.title {
-                            summaryBadges
-                                .padding(.top, 4)
+                            summaryLine
                         }
                         UDFoldableHeader(
                             title: section.title,
@@ -158,7 +159,7 @@ struct TodayView: View {
     private var searchList: some View {
         List {
             ForEach(searchResults) { item in
-                TimelineRow(item: item, showsDay: true) {
+                TimelineRow(item: item, showsDay: true, showsDivider: item.id != searchResults.last?.id) {
                     Task { await load() }
                 } onRemove: { removed, target in
                     // Search covers many days, so only a delete takes the row out.
@@ -203,20 +204,16 @@ struct TodayView: View {
         isSearching = false
     }
 
-    /// "4 events" and "1 reminder left" as badges under the search bar.
-    private var summaryBadges: some View {
+    /// "4 events · 1 reminder left" as one gray line under the title.
+    private var summaryLine: some View {
         let events = items.filter { $0.kind == .event }.count
         let reminders = items.count - events
-        return HStack(spacing: 8) {
-            UDBadge(text: "\(events) \(events == 1 ? "event" : "events")", tone: .brand, dot: true)
-            UDBadge(
-                text: "\(reminders) \(reminders == 1 ? "reminder" : "reminders") left",
-                tone: reminders > 0 ? .warning : .gray,
-                dot: true
-            )
-            Spacer(minLength: 0)
-        }
-        .accessibilityElement(children: .combine)
+        return Text("\(events) \(events == 1 ? "event" : "events") · \(reminders) \(reminders == 1 ? "reminder" : "reminders") left")
+            .font(.subheadline)
+            .foregroundStyle(UD.textTertiary)
+            .textCase(nil)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityLabel("\(events) \(events == 1 ? "event" : "events"), \(reminders) \(reminders == 1 ? "reminder" : "reminders") left")
     }
 
     private var collapsedTitles: Set<String> {
@@ -265,7 +262,7 @@ struct TodayView: View {
     }
 }
 
-/// Bell with a count, for the Today toolbar.
+/// Bell for the Today toolbar, with a small red dot when something needs attention.
 struct AttentionBell: View {
     let count: Int
 
@@ -273,14 +270,10 @@ struct AttentionBell: View {
         Image(systemName: "bell")
             .overlay(alignment: .topTrailing) {
                 if count > 0 {
-                    Text(count > 99 ? "99+" : "\(count)")
-                        .font(.caption2.bold().monospacedDigit())
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(UD.errorFg, in: Capsule())
-                        .fixedSize()
-                        .offset(x: 9, y: -9)
+                    Circle()
+                        .fill(UD.errorFg)
+                        .frame(width: 8, height: 8)
+                        .offset(x: 1, y: -1)
                 }
             }
     }
@@ -388,7 +381,7 @@ struct TimelineRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             if !typeSize.isAccessibilitySize, let trailingLabel {
                 timeText(trailingLabel)
-                    .padding(.top, showsSource ? 2 : 3)
+                    .padding(.top, 2)
             }
         }
         // Lets the color bar grow to the height of the text beside it.

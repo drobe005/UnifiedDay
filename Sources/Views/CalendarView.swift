@@ -40,8 +40,7 @@ struct CalendarView: View {
                     AccessPromptView { Task { _ = await eventKit.requestAccess() } }
                 }
             }
-            .navigationTitle(selectedDay.formatted(.dateTime.month(.wide).year()))
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(selectedDay.formatted(.dateTime.month(.wide)))
             .toolbar { toolbar }
         }
     }
@@ -51,12 +50,14 @@ struct CalendarView: View {
     private var content: some View {
         List {
             Section {
-                Picker("View", selection: $mode) {
-                    ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+                // Week and Month on the left, what the list covers on the right.
+                HStack(spacing: 12) {
+                    UDTextTabs(options: Mode.allCases.map { ($0, $0.rawValue) }, selection: $mode)
+                        .accessibilityElement(children: .contain)
+                        .accessibilityLabel("View")
+                    scopeMenu
                 }
-                .pickerStyle(.segmented)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                .udPlainRow()
 
                 CalendarGrid(
                     days: visibleDays,
@@ -64,33 +65,22 @@ struct CalendarView: View {
                     selectedDay: $selectedDay,
                     markedDays: markedDays
                 )
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
+                .padding(.top, 4)
+                .udPlainRow()
                 .simultaneousGesture(swipeToChangePeriod)
-            }
-            .listRowSeparator(.hidden)
 
-            Section {
-                filters
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 4, leading: UD.screenPadding, bottom: 4, trailing: UD.screenPadding))
                 if scope == .custom {
-                    UDCard {
+                    Group {
                         DatePicker("From", selection: $customStart, displayedComponents: .date)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                        UDDivider()
                         DatePicker("To", selection: $customEnd, in: customStart..., displayedComponents: .date)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
                     }
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(UD.textPrimary)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 4, leading: UD.screenPadding, bottom: 4, trailing: UD.screenPadding))
+                    .foregroundStyle(UD.textSecondary)
+                    .tint(UD.brand600)
+                    .padding(.vertical, 6)
+                    .overlay(alignment: .bottom) { UDDivider() }
+                    .udPlainRow()
                 }
             }
-            .listRowSeparator(.hidden)
 
             if scope == .day {
                 daySection
@@ -121,22 +111,18 @@ struct CalendarView: View {
         }
     }
 
-    /// Which days the list covers, as a compact menu button.
-    private var filters: some View {
-        HStack(spacing: 8) {
-            Menu {
-                Picker("Show", selection: $scope) {
-                    Text("Selected day").tag(Scope.day)
-                    Text(mode == .week ? "All this week" : "All this month").tag(Scope.period)
-                    Text("Custom range").tag(Scope.custom)
-                }
-            } label: {
-                FilterChip(icon: "calendar", text: scopeLabel)
+    /// Which days the list covers, as a small gray menu.
+    private var scopeMenu: some View {
+        Menu {
+            Picker("Show", selection: $scope) {
+                Text("Selected day").tag(Scope.day)
+                Text(mode == .week ? "All this week" : "All this month").tag(Scope.period)
+                Text("Custom range").tag(Scope.custom)
             }
-            .accessibilityLabel("Show, \(scopeLabel)")
-
-            Spacer(minLength: 0)
+        } label: {
+            FilterChip(text: scopeLabel)
         }
+        .accessibilityLabel("Show, \(scopeLabel)")
     }
 
     private var scopeLabel: String {
@@ -163,7 +149,7 @@ struct CalendarView: View {
                 }
             } else {
                 ForEach(visible) { item in
-                    TimelineRow(item: item) {
+                    TimelineRow(item: item, showsDivider: item.id != visible.last?.id) {
                         Task { await loadDay() }
                     } onRemove: { removed, target in
                         if let target, calendar.isDate(target.day(), inSameDayAs: selectedDay) { return }
@@ -198,7 +184,7 @@ struct CalendarView: View {
             Section {
                 if !isCollapsed(group.day) {
                     ForEach(group.items) { item in
-                        TimelineRow(item: item) {
+                        TimelineRow(item: item, showsDivider: item.id != group.items.last?.id) {
                             Task { await loadRange() }
                         } onRemove: { removed, target in
                             if let target, let range, range.contains(target.day()) { return }
@@ -222,10 +208,12 @@ struct CalendarView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
+        UDOverlineToolbarItem(text: selectedDay.formatted(.dateTime.year()))
+        ToolbarItem(placement: .topBarTrailing) {
             Button("Today") {
                 selectedDay = calendar.startOfDay(for: .now)
             }
+            .fontWeight(.semibold)
             .disabled(calendar.isDateInToday(selectedDay))
         }
         ToolbarItem(placement: .topBarTrailing) {
@@ -421,7 +409,7 @@ struct CalendarGrid: View {
         LazyVGrid(columns: columns, spacing: 2) {
             ForEach(Array(weekdaySymbols.enumerated()), id: \.offset) { _, symbol in
                 Text(symbol)
-                    .font(.caption.weight(.semibold))
+                    .font(.caption.weight(.medium))
                     .foregroundStyle(UD.textTertiary)
                     .accessibilityHidden(true)
             }
@@ -443,15 +431,14 @@ struct CalendarGrid: View {
         } label: {
             VStack(spacing: 2) {
                 Text(day.formatted(.dateTime.day()))
-                    .font(.body.monospacedDigit().weight(isToday || isSelected ? .bold : .regular))
+                    .font(.body.monospacedDigit().weight(isToday || isSelected ? .semibold : .regular))
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
                     .frame(width: 34, height: 34)
                     .background {
+                        // Brand blue marks the selected day only. Today is bold brand text.
                         if isSelected {
                             Circle().fill(UD.brand600)
-                        } else if isToday {
-                            Circle().fill(UD.brand50)
                         }
                     }
                     .foregroundStyle(dayColor(isSelected: isSelected, isToday: isToday, isDimmed: isDimmed))

@@ -33,6 +33,8 @@ struct RemindersListView: View {
     private struct Group {
         let id: String
         let name: String
+        /// The list's color in Apple Reminders, for the dot in its heading.
+        var color: Color?
         var canDelete = false
         var items: [TimelineItem]
     }
@@ -61,6 +63,7 @@ struct RemindersListView: View {
             }
             .navigationTitle("Reminders")
             .searchable(text: $searchText, prompt: "Search titles and notes")
+            .udMinimizedSearch()
             .toolbar { toolbar }
             .alert("New List", isPresented: $isNamingList) {
                 TextField("Name", text: $newListName)
@@ -99,7 +102,13 @@ struct RemindersListView: View {
                             UDEmptyListRow(text: "No reminders")
                         }
                         ForEach(group.items) { item in
-                            TimelineRow(item: item, showsDay: true) {
+                            // The heading already names the list, so rows skip it.
+                            TimelineRow(
+                                item: item,
+                                showsDay: true,
+                                showsSource: false,
+                                showsDivider: item.id != group.items.last?.id
+                            ) {
                                 Task { await load() }
                             } onRemove: { removed, target in
                                 // Rescheduled reminders stay in their list, so only a delete removes one.
@@ -149,6 +158,7 @@ struct RemindersListView: View {
             UDFoldableHeader(
                 title: group.name,
                 count: group.items.count,
+                dotColor: group.color,
                 isCollapsed: collapsed,
                 isDisabled: isSearching,
                 showHint: "Shows this list's reminders",
@@ -164,9 +174,9 @@ struct RemindersListView: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.caption.weight(.semibold))
                         .foregroundStyle(UD.textTertiary)
-                        .frame(width: 44, height: 32)
+                        .frame(width: 44, height: 32, alignment: .trailing)
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel("\(group.name) options")
@@ -203,10 +213,18 @@ struct RemindersListView: View {
         }
     }
 
+    /// How many open reminders the tab holds, for the gray line above the title.
+    private var openCount: Int {
+        grouped.reduce(0) { $0 + $1.items.count }
+    }
+
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         if eventKit.accessGranted {
-            ToolbarItem(placement: .topBarLeading) {
+            if hasLoaded {
+                UDOverlineToolbarItem(text: "\(openCount) open")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Button("New List", systemImage: "folder.badge.plus") {
                     newListName = ""
                     isNamingList = true
@@ -222,7 +240,7 @@ struct RemindersListView: View {
                     }
                 } label: {
                     Image(systemName: filter == .all
-                        ? "line.3.horizontal.decrease.circle"
+                        ? "line.3.horizontal.decrease"
                         : "line.3.horizontal.decrease.circle.fill")
                 }
                 .accessibilityLabel("Sort and filter")
@@ -252,7 +270,7 @@ struct RemindersListView: View {
             }
             return sorted.isEmpty && !showEmpty
                 ? nil
-                : Group(id: group.id, name: group.name, canDelete: group.canDelete, items: sorted)
+                : Group(id: group.id, name: group.name, color: group.color, canDelete: group.canDelete, items: sorted)
         }
     }
 
@@ -283,6 +301,7 @@ struct RemindersListView: View {
                 Group(
                     id: list.calendarIdentifier,
                     name: list.title,
+                    color: Color(list.cgColor),
                     canDelete: eventKit.canDeleteReminderList(id: list.calendarIdentifier),
                     items: EventKitService.sortItems(byList[list.calendarIdentifier] ?? [])
                 )

@@ -178,6 +178,9 @@ colors, no new dependencies. Widgets and the `mac` branch are untouched.
    (done 2026-11-17, checked in the Simulator in light and dark)
 2. Today, Calendar and Reminders: large titles, one gray summary line on Today,
    text tabs for Week and Month, list color dots on Reminders headings.
+   (done 2026-11-17, checked in the Simulator in light and dark. Search is a
+   magnifying glass button on iOS 26 and later. Known issue: while the search
+   field is open, iOS draws the large title against the left screen edge.)
 3. Notes: list, folders, editor.
 4. Composer sheets, item detail, Needs Attention, Settings, Tab Order, empty and
    access-needed states, onboarding.

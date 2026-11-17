@@ -321,8 +321,9 @@ struct ReminderCheck: View {
             }
         }
         .frame(width: size, height: size)
-        .frame(width: Self.columnWidth, height: Self.columnWidth, alignment: .leading)
-        .contentShape(Rectangle().inset(by: -9))
+        // As tall as one line of body text, so the circle centers on the title.
+        .frame(width: Self.columnWidth, height: 22, alignment: .leading)
+        .contentShape(Rectangle().inset(by: -10))
     }
 }
 
@@ -359,7 +360,6 @@ struct UDPrimaryButtonStyle: ButtonStyle {
 
 /// Plain gray menu label with a small chevron, used for filters.
 struct FilterChip: View {
-    let icon: String
     let text: String
 
     var body: some View {
@@ -532,6 +532,46 @@ struct UDTextTabs<Value: Hashable>: View {
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
             Spacer(minLength: 0)
+        }
+    }
+}
+
+// MARK: - Navigation
+
+/// Small gray line above a screen's large title, like the date above "Today".
+/// It sits in the navigation bar's leading spot with no button background.
+struct UDOverlineToolbarItem: ToolbarContent {
+    let text: String
+
+    var body: some ToolbarContent {
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .topBarLeading) { label }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .topBarLeading) { label }
+        }
+    }
+
+    private var label: some View {
+        Text(text)
+            .font(.subheadline)
+            .foregroundStyle(UD.textTertiary)
+            .lineLimit(1)
+            .fixedSize()
+            // Short text would otherwise center in the button-sized slot and sit off the margin.
+            .frame(minWidth: 44, alignment: .leading)
+            .accessibilityAddTraits(.isStaticText)
+    }
+}
+
+extension View {
+    /// Shows search as a magnifying glass button until it is tapped, where iOS supports it.
+    @ViewBuilder
+    func udMinimizedSearch() -> some View {
+        if #available(iOS 26.0, *) {
+            searchToolbarBehavior(.minimize)
+        } else {
+            self
         }
     }
 }
