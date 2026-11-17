@@ -151,10 +151,10 @@ struct NotesListView: View {
         .contentMargins(.bottom, ComposerButtonClearance.height, for: .scrollContent)
         .overlay {
             if notes.isEmpty {
-                UDEmptyState(icon: "note.text", title: "No notes yet", message: "Tap + to write one.")
+                UDEmptyState(title: "No notes yet", message: "Tap + to write one.")
             } else if visible.isEmpty {
                 if searchText.isEmpty {
-                    UDEmptyState(icon: "folder", title: "No notes here", message: "Try another folder or filter.")
+                    UDEmptyState(title: "No notes here", message: "Try another folder or filter.")
                 } else {
                     searchEmptyState(searchText)
                 }
@@ -163,7 +163,7 @@ struct NotesListView: View {
     }
 
     private func searchEmptyState(_ text: String) -> some View {
-        UDEmptyState(icon: "magnifyingglass", title: "No results", message: "Nothing matches \"\(text)\".")
+        UDEmptyState(title: "No results", message: "Nothing matches \"\(text)\".")
     }
 
     /// Every folder with its note count. Tapping one opens its notes.

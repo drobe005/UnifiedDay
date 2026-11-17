@@ -50,35 +50,30 @@ struct ComposerView: View {
     var body: some View {
         NavigationStack {
             List {
-                if attachedItem == nil {
-                    // Sits on the background, not in a card, like the Figma design.
-                    Section {
-                        Picker("Type", selection: $kind) {
-                            Text("Reminder").tag(DraftKind.reminder)
-                            Text("Event").tag(DraftKind.event)
-                            Text("Note").tag(DraftKind.note)
-                        }
-                        .pickerStyle(.segmented)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
-                    }
-                }
-
                 Section {
-                    TextField("Add a title", text: $title)
-                        .font(kind == .note ? .title3.weight(.bold) : .body)
+                    if attachedItem == nil {
+                        UDTextTabs(
+                            options: [(.reminder, "Reminder"), (.event, "Event"), (.note, "Note")],
+                            selection: $kind
+                        )
+                        .accessibilityElement(children: .contain)
+                        .accessibilityLabel("Type")
+                        .listRowSeparator(.hidden)
+                    }
+                    TextField("Add a title", text: $title, axis: .vertical)
+                        .font(.title2.weight(.semibold))
                         .foregroundStyle(UD.textPrimary)
                         .focused($titleFocused)
+                        .padding(.vertical, 6)
+                        .listRowSeparator(.hidden, edges: .top)
                     if kind != .note, let found = TypedDate.find(in: title) {
                         Button {
                             useTypedDate(found)
                         } label: {
                             Label("Set date: \(found.label)", systemImage: "calendar.badge.plus")
-                                .foregroundStyle(UD.brand700)
                         }
+                        .udLinkRow()
                     }
-                } header: {
-                    UDFormHeader(title: "Title")
                 }
                 .udFormRow()
 
@@ -86,6 +81,8 @@ struct ComposerView: View {
                     Section {
                         TextField("Write something", text: $notes, axis: .vertical)
                             .lineLimit(6...)
+                            .padding(.vertical, 8)
+                            .listRowSeparator(.hidden)
                     } footer: {
                         UDSavedInAppNote()
                     }
@@ -93,6 +90,8 @@ struct ComposerView: View {
 
                     Section {
                         NoteFolderPicker(selection: $folder)
+                    } header: {
+                        UDFormHeader(title: "Folder")
                     }
                     .udFormRow()
 
@@ -111,14 +110,19 @@ struct ComposerView: View {
                         Button("Attach Events or Reminders", systemImage: "plus") {
                             showingItemPicker = true
                         }
+                        .udLinkRow()
                     } header: {
                         UDFormHeader(title: "Attached to")
                     }
                     .udFormRow()
                 } else {
                     Section {
-                        DatePicker("Date", selection: $date, displayedComponents: includeTime ? [.date, .hourAndMinute] : [.date])
+                        // Date and time are two rows over the same value, as in the design.
+                        DatePicker("Date", selection: $date, displayedComponents: .date)
                         Toggle("Include time", isOn: $includeTime)
+                        if includeTime {
+                            DatePicker("Time", selection: $date, displayedComponents: .hourAndMinute)
+                        }
                         RepeatPicker(selection: $repeatOption)
                         if kind == .event {
                             Picker("Calendar", selection: $selectedCalendarID) {
@@ -126,19 +130,24 @@ struct ComposerView: View {
                                     Text(calendar.title).tag(Optional(calendar.calendarIdentifier))
                                 }
                             }
+                            .udPickerValue()
                         } else {
                             Picker("List", selection: $selectedListID) {
                                 ForEach(eventKit.writableReminderLists(), id: \.calendarIdentifier) { list in
                                     Text(list.title).tag(Optional(list.calendarIdentifier))
                                 }
                             }
+                            .udPickerValue()
                         }
                     }
                     .udFormRow()
+                    .udValuePicker()
 
                     Section {
                         TextField("Optional", text: $notes, axis: .vertical)
                             .lineLimit(4...)
+                            .padding(.vertical, 8)
+                            .listRowSeparator(.hidden)
                     } header: {
                         UDFormHeader(title: "Apple notes")
                     }
@@ -146,9 +155,10 @@ struct ComposerView: View {
                 }
             }
             .udFormBackground()
-            .tint(UD.brand600)
             .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
+            // The tabs already say what is being made, so the bar shows only the buttons.
+            .toolbar(removing: .title)
             .sheet(isPresented: $showingItemPicker) {
                 ItemPickerView(isAttached: isAttached) { items in
                     attachments += items
@@ -163,7 +173,7 @@ struct ComposerView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    UDToolbarCancelButton { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     UDToolbarConfirmButton { save() }
@@ -185,19 +195,13 @@ struct ComposerView: View {
     }
 
     private func attachmentRow(_ item: TimelineItem) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: item.kind == .event ? "calendar" : "checklist")
+        VStack(alignment: .leading, spacing: 2) {
+            Text(item.title)
+                .font(.body.weight(.medium))
+                .foregroundStyle(UD.textPrimary)
+            Text(item.scheduleLabel)
+                .font(.subheadline)
                 .foregroundStyle(UD.textTertiary)
-                .frame(width: 24)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title)
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(UD.textPrimary)
-                Text(item.scheduleLabel)
-                    .font(.subheadline)
-                    .foregroundStyle(UD.textTertiary)
-            }
         }
     }
 
@@ -249,6 +253,7 @@ struct RepeatPicker: View {
                 Text(RepeatOption.custom.label).tag(RepeatOption.custom)
             }
         }
+        .udPickerValue()
     }
 }
 

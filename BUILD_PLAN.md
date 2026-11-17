@@ -187,6 +187,17 @@ colors, no new dependencies. Widgets and the `mac` branch are untouched.
    button keeps Apple's filled look, which the app cannot restyle.)
 4. Composer sheets, item detail, Needs Attention, Settings, Tab Order, empty and
    access-needed states, onboarding.
+   (done 2026-11-17, checked in the Simulator in light and dark. Not seen on
+   screen: the error banner, the Move sheet, the item and note pickers, a
+   read-only item, an overdue row, and a list with many rows.)
+
+Still different from Figma, on purpose or because Apple draws it: toolbar buttons
+sit in Apple's glass capsules, the tab bar is Apple's, Today keeps its Refresh
+button, Calendar keeps the previous and next arrows and the "Selected day" menu,
+date and time values show in Apple's gray pills, menus show Apple's up and down
+chevrons, the List and Calendar rows in the composer have no color dot, Needs
+Attention puts its title under the Done button, and the lines in Tab Order stop
+before the drag handles.
 
 Acceptance per step: builds, matches the Figma frame in light mode, reads well in
 dark mode, and nothing behaves differently. Run on a real iPhone before merging

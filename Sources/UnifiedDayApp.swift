@@ -25,11 +25,11 @@ enum AppTab: String, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
-        case .today: "calendar.day.timeline.left"
+        case .today: "sun.max"
         case .calendar: "calendar"
         case .reminders: "checklist"
-        case .notes: "note.text"
-        case .settings: "gear"
+        case .notes: "doc.text"
+        case .settings: "gearshape"
         }
     }
 
@@ -170,8 +170,6 @@ struct RootView: View {
                         .frame(width: 56, height: 56)
                         .background(UD.brand600, in: Circle())
                         .foregroundStyle(.white)
-                        .shadow(color: .black.opacity(0.12), radius: 12, y: 8)
-                        .shadow(color: .black.opacity(0.06), radius: 3, y: 2)
                 }
                 .padding(.trailing)
                 // Sits above the tab bar so the two never overlap.
@@ -330,7 +328,6 @@ struct ErrorBanner: View {
                     RoundedRectangle(cornerRadius: UD.cardRadius, style: .continuous)
                         .strokeBorder(UD.errorBorder)
                 )
-                .shadow(color: .black.opacity(0.08), radius: 8, y: 4)
         }
         .buttonStyle(.plain)
         .padding(.horizontal)

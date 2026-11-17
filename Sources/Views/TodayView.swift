@@ -245,7 +245,6 @@ struct TodayView: View {
 
     private var emptyState: some View {
         UDEmptyState(
-            icon: "calendar.badge.checkmark",
             title: "Nothing on the books",
             message: "No events or reminders today. Tap + to add one."
         )
@@ -294,7 +293,6 @@ struct AccessPromptView: View {
         Group {
             if eventKit.accessNeedsSettings {
                 UDEmptyState(
-                    icon: "lock",
                     title: "Calendar access needed",
                     message: "Turn on full access for Calendars and Reminders in iOS Settings.",
                     actionTitle: "Open Settings"
@@ -305,7 +303,6 @@ struct AccessPromptView: View {
                 }
             } else {
                 UDEmptyState(
-                    icon: "lock",
                     title: "Calendar access needed",
                     message: "UnifiedDay needs Calendar and Reminders access to build your timeline.",
                     actionTitle: "Continue",
@@ -589,7 +586,7 @@ struct RescheduleDateSheet: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { dismiss() }
+                        UDToolbarCancelButton { dismiss() }
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         UDToolbarConfirmButton(title: "Move") {
@@ -625,9 +622,11 @@ struct OnboardingView: View {
                     .font(.largeTitle.bold())
                     .foregroundStyle(UD.textPrimary)
 
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 0) {
                     point("Reads your Apple Calendar so events show up in the timeline.", icon: "calendar")
-                    point("Reads your Apple Reminders so tasks sit next to events.", icon: "checklist", accent: true)
+                    UDDivider()
+                    point("Reads your Apple Reminders so tasks sit next to events.", icon: "checklist")
+                    UDDivider()
                     point("Everything stays on your device and in your iCloud. There is no server.", icon: "lock")
                 }
 
@@ -656,19 +655,19 @@ struct OnboardingView: View {
         }
     }
 
-    /// One permission line: a small tinted icon tile and one sentence.
-    private func point(_ text: String, icon: String, accent: Bool = false) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+    /// One permission line: a plain icon and one sentence.
+    private func point(_ text: String, icon: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
             Image(systemName: icon)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(accent ? UD.orange700 : UD.brand600)
-                .frame(width: 32, height: 32)
-                .background(accent ? UD.orange100 : UD.brand100, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .font(.body.weight(.medium))
+                .foregroundStyle(UD.textPrimary)
+                .frame(width: 24)
                 .accessibilityHidden(true)
             Text(text)
                 .font(.body)
                 .foregroundStyle(UD.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(.vertical, 14)
     }
 }

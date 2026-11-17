@@ -39,13 +39,10 @@ struct SettingsView: View {
     @ViewBuilder
     private var sections: some View {
                 UDSection(title: "Access") {
-                    UDRow(icon: "calendar.badge.checkmark", title: "Calendar and Reminders") {
-                        if eventKit.accessGranted {
-                            UDBadge(text: "Granted", tone: .success, dot: true)
-                        } else {
-                            UDBadge(text: "Not granted", tone: .warning, dot: true)
-                        }
+                    UDRow(title: "Calendar and Reminders") {
+                        UDValue(text: eventKit.accessGranted ? "Granted" : "Not granted")
                     }
+                    .accessibilityElement(children: .combine)
                     if !eventKit.accessGranted {
                         UDDivider()
                         linkRow("Open Settings") {
@@ -122,7 +119,10 @@ struct SettingsView: View {
                         Task { await eventKit.refreshAlerts() }
                     }
 
-                    UDSection(footer: "Shows reminders due today plus overdue. Updates when you open the app.") {
+                    UDSection(
+                        title: "Badge",
+                        footer: "Shows reminders due today plus overdue. Updates when you open the app."
+                    ) {
                         toggleRow("App icon badge", isOn: $badgeEnabled)
                     }
                     .onChange(of: badgeEnabled) { _, enabled in
@@ -156,7 +156,7 @@ struct SettingsView: View {
                     title: "About",
                     footer: "Report a bug or share an idea. Your app version and iPhone model are added to the email for you."
                 ) {
-                    linkRow("Send Feedback", icon: "envelope") { sendFeedback() }
+                    linkRow("Send Feedback") { sendFeedback() }
                     UDDivider()
                     UDRow(title: "Version") { UDValue(text: Feedback.appVersion) }
                         .accessibilityElement(children: .combine)
@@ -178,7 +178,7 @@ struct SettingsView: View {
         } label: {
             UDRow(title: title) {
                 UDValue(text: value)
-                Image(systemName: "chevron.up.chevron.down")
+                Image(systemName: "chevron.right")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(UD.textQuaternary)
             }
@@ -196,22 +196,14 @@ struct SettingsView: View {
         }
     }
 
-    /// A blue text row that performs an action.
-    private func linkRow(_ title: String, icon: String? = nil, action: @escaping () -> Void) -> some View {
+    /// A brand text row that performs an action.
+    private func linkRow(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 8) {
-                if let icon {
-                    Image(systemName: icon)
-                }
-                Text(title)
-                Spacer()
-            }
-            .font(.body.weight(.semibold))
-            .foregroundStyle(UD.brand700)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .frame(minHeight: 52)
-            .contentShape(Rectangle())
+            Text(title)
+                .font(.body.weight(.medium))
+                .foregroundStyle(UD.brand700)
+                .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+                .contentShape(Rectangle())
         }
         .buttonStyle(UDRowButtonStyle())
     }
@@ -239,7 +231,7 @@ struct SettingsView: View {
     private func integrationRow(name: String, detail: String, comingSoon: Bool) -> some View {
         UDRow(title: name, subtitle: detail) {
             if comingSoon {
-                UDBadge(text: "v0.2")
+                UDValue(text: "v0.2")
             }
         }
         .accessibilityElement(children: .combine)
@@ -257,34 +249,35 @@ struct TabOrderView: View {
         List {
             Section {
                 ForEach(order) { tab in
-                    Label {
-                        Text(tab.title)
-                            .font(.body.weight(.medium))
-                            .foregroundStyle(UD.textPrimary)
-                    } icon: {
-                        Image(systemName: tab.systemImage)
-                            .foregroundStyle(UD.textTertiary)
-                    }
+                    Text(tab.title)
+                        .font(.body)
+                        .foregroundStyle(UD.textPrimary)
                 }
                 .onMove { from, to in
                     order.move(fromOffsets: from, toOffset: to)
                 }
-            } footer: {
-                UDFormFooter(text: "Drag to reorder. The tab bar updates when you go back. The app opens on the first tab, and Settings always stays last.")
+            } header: {
+                UDFormGap()
             }
             .udFormRow()
             Section {
                 Button("Reset to Default") { order = AppTab.movable }
+                    .font(.body.weight(.medium))
                     .foregroundStyle(order == AppTab.movable ? UD.textQuaternary : UD.brand700)
                     .disabled(order == AppTab.movable)
+            } header: {
+                // The explanation is this section's heading, so no line is drawn around it.
+                UDFormFooter(text: "Drag to reorder. The tab bar updates when you go back. The app opens on the first tab, and Settings always stays last.")
+                    .textCase(nil)
+                    .padding(.top, 10)
+                    .listRowInsets(UD.rowInsets)
             }
             .udFormRow()
+            .listRowSeparator(.hidden)
         }
         .udFormBackground()
-        .listRowSeparatorTint(UD.borderSecondary)
         .environment(\.editMode, .constant(.active))
         .navigationTitle("Tab Order")
-        .navigationBarTitleDisplayMode(.inline)
         .onAppear { order = AppTab.order(from: saved) }
         .onDisappear {
             let value = order == AppTab.movable ? "" : order.map(\.rawValue).joined(separator: ",")

@@ -204,83 +204,6 @@ struct UDValue: View {
     }
 }
 
-// MARK: - Badge
-
-enum UDTone {
-    case gray, brand, success, warning, error
-
-    var foreground: Color {
-        switch self {
-        case .gray: UD.textStrong
-        case .brand: UD.brand700
-        case .success: UD.successFg
-        case .warning: UD.warningFg
-        case .error: UD.errorFg
-        }
-    }
-
-    var background: Color {
-        switch self {
-        case .gray: UD.bgSubtle
-        case .brand: UD.brand50
-        case .success: UD.successBg
-        case .warning: UD.warningBg
-        case .error: UD.errorBg
-        }
-    }
-
-    var border: Color {
-        switch self {
-        case .gray: UD.borderSecondary
-        case .brand: UD.brand200
-        case .success: UD.successBorder
-        case .warning: UD.warningBorder
-        case .error: UD.errorBorder
-        }
-    }
-}
-
-/// Small pill label, optionally with a leading dot.
-struct UDBadge: View {
-    let text: String
-    var tone: UDTone = .gray
-    var dot = false
-
-    var body: some View {
-        HStack(spacing: 4) {
-            if dot {
-                Circle().fill(tone.foreground).frame(width: 6, height: 6)
-            }
-            Text(text)
-                .font(.caption.weight(.medium))
-                .lineLimit(1)
-        }
-        .foregroundStyle(tone.foreground)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 2)
-        .background(tone.background, in: Capsule())
-        .overlay(Capsule().strokeBorder(tone.border))
-    }
-}
-
-// MARK: - Featured icon
-
-/// Icon on a soft colored circle, used in empty states and onboarding.
-struct UDFeaturedIcon: View {
-    let systemName: String
-    var size: CGFloat = 48
-    var accent = false
-
-    var body: some View {
-        Image(systemName: systemName)
-            .font(.system(size: size * 0.42, weight: .medium))
-            .foregroundStyle(accent ? UD.orange700 : UD.brand600)
-            .frame(width: size, height: size)
-            .background(accent ? UD.orange100 : UD.brand100, in: Circle())
-            .accessibilityHidden(true)
-    }
-}
-
 // MARK: - Reminder check
 
 /// Round checkbox for reminders: a thin gray ring, filled brand blue when done.
@@ -372,6 +295,16 @@ struct UDDestructiveButtonStyle: ButtonStyle {
     }
 }
 
+/// Cancel button for a sheet's toolbar, in gray so Save is the only blue.
+struct UDToolbarCancelButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button("Cancel", action: action)
+            .tint(UD.textSecondary)
+    }
+}
+
 /// Confirm button for a sheet's toolbar (Save, Done, Move), as bold brand text.
 struct UDToolbarConfirmButton: View {
     var title = "Save"
@@ -395,9 +328,8 @@ struct UDRowButtonStyle: ButtonStyle {
 
 // MARK: - Empty state
 
-/// Centered icon, title, message and optional action.
+/// Centered title, one line of gray text, and an optional action.
 struct UDEmptyState: View {
-    let icon: String
     let title: String
     let message: String
     var actionTitle: String?
@@ -405,14 +337,13 @@ struct UDEmptyState: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            UDFeaturedIcon(systemName: icon, size: 56)
-            VStack(spacing: 4) {
+            VStack(spacing: 6) {
                 Text(title)
                     .font(.headline)
                     .foregroundStyle(UD.textPrimary)
                 Text(message)
                     .font(.subheadline)
-                    .foregroundStyle(UD.textSecondary)
+                    .foregroundStyle(UD.textTertiary)
                     .multilineTextAlignment(.center)
             }
             if let actionTitle, let action {
@@ -442,6 +373,8 @@ extension View {
             .listRowSeparatorTint(UD.divider)
             .listSectionSeparator(.hidden)
             .environment(\.defaultMinListRowHeight, 52)
+            .environment(\.defaultMinListHeaderHeight, 0)
+            .tint(UD.brand600)
             .scrollContentBackground(.hidden)
             .background(UD.bgScreen)
     }
@@ -456,11 +389,15 @@ extension View {
             .alignmentGuide(.listRowSeparatorTrailing) { $0[.trailing] }
     }
 
-    /// A form row's label in gray and its chosen value in the darker text color,
-    /// so only real actions are brand blue.
+    /// Gray labels for a form section's rows (Date, Repeat, Calendar), so the
+    /// values on the right stand out.
     func udValuePicker() -> some View {
         foregroundStyle(UD.textSecondary)
-            .tint(UD.textPrimary)
+    }
+
+    /// A menu picker's chosen value in the dark text color, not brand blue.
+    func udPickerValue() -> some View {
+        tint(UD.textPrimary)
     }
 
     /// Brand text for a row that does something, like New Folder or Link a Note.

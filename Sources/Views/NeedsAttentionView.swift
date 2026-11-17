@@ -18,7 +18,6 @@ struct NeedsAttentionView: View {
                     ProgressView()
                 } else if items.isEmpty {
                     UDEmptyState(
-                        icon: "checkmark",
                         title: "All caught up",
                         message: "Nothing overdue or due today."
                     )
@@ -34,10 +33,10 @@ struct NeedsAttentionView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .udScreenBackground()
             .navigationTitle("Needs Attention")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    UDToolbarConfirmButton(title: "Done") { dismiss() }
                 }
             }
             .task { await load() }
@@ -53,7 +52,7 @@ struct NeedsAttentionView: View {
         if !items.isEmpty {
             Section {
                 ForEach(items) { item in
-                    TimelineRow(item: item) {
+                    TimelineRow(item: item, showsDivider: item.id != items.last?.id) {
                         Task { await load() }
                     } onRemove: { removed, target in
                         // Rescheduling to today keeps the row; the reload moves it.

@@ -509,20 +509,17 @@ struct ItemPickerView: View {
             .overlay {
                 if !eventKit.accessGranted {
                     UDEmptyState(
-                        icon: "lock",
                         title: "Calendar access needed",
                         message: "Allow access to attach events and reminders."
                     )
                 } else if hasLoaded && visibleItems.isEmpty {
                     if trimmedSearch.isEmpty {
                         UDEmptyState(
-                            icon: tab == .events ? "calendar" : "checklist",
                             title: tab == .events ? "No upcoming events" : "No open reminders",
                             message: "Nothing to attach here in the next 30 days."
                         )
                     } else {
                         UDEmptyState(
-                            icon: "magnifyingglass",
                             title: "No results",
                             message: "Nothing matches \"\(trimmedSearch)\"."
                         )
@@ -534,10 +531,10 @@ struct ItemPickerView: View {
             .searchable(text: $searchText, prompt: "Search the next 30 days")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    UDToolbarCancelButton { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
+                    UDToolbarConfirmButton(title: "Done") {
                         onDone(Array(selected.values))
                         dismiss()
                     }
@@ -678,13 +675,11 @@ struct NotePickerView: View {
                 if available.isEmpty {
                     if searchText.isEmpty {
                         UDEmptyState(
-                            icon: "note.text",
                             title: "No notes to attach",
                             message: "Notes you write will show up here."
                         )
                     } else {
                         UDEmptyState(
-                            icon: "magnifyingglass",
                             title: "No results",
                             message: "Nothing matches \"\(searchText)\"."
                         )
@@ -696,7 +691,7 @@ struct NotePickerView: View {
             .searchable(text: $searchText, prompt: "Search notes")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    UDToolbarCancelButton { dismiss() }
                 }
             }
         }
@@ -728,6 +723,7 @@ struct NoteFolderPicker: View {
             }
         }
         .udValuePicker()
+        .udPickerValue()
         Button("New Folder", systemImage: "folder.badge.plus") {
             name = ""
             isNaming = true
@@ -895,7 +891,7 @@ struct NoteImageViewer: View {
                         .scaledToFit()
                         .accessibilityLabel("Image")
                 } else {
-                    UDEmptyState(icon: "photo", title: "Image not available", message: "It may still be syncing from iCloud.")
+                    UDEmptyState(title: "Image not available", message: "It may still be syncing from iCloud.")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

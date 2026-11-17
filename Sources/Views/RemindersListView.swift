@@ -132,17 +132,15 @@ struct RemindersListView: View {
             if !hasLoaded {
                 ProgressView()
             } else if grouped.isEmpty {
-                UDEmptyState(icon: "checklist", title: "No open reminders", message: "Tap + to add one.")
+                UDEmptyState(title: "No open reminders", message: "Tap + to add one.")
             } else if filtered.isEmpty {
                 if searchText.isEmpty {
                     UDEmptyState(
-                        icon: "line.3.horizontal.decrease",
                         title: "Nothing \(filter.rawValue.lowercased())",
                         message: "Try another filter."
                     )
                 } else {
                     UDEmptyState(
-                        icon: "magnifyingglass",
                         title: "No results",
                         message: "Nothing matches \"\(searchText)\"."
                     )

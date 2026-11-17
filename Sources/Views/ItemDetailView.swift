@@ -55,28 +55,6 @@ struct ItemDetailView: View {
                     editableContent
                 }
 
-                Section {
-                    if item.isReadOnly {
-                        LabeledContent(isEvent ? "Calendar" : "List") {
-                            HStack(spacing: 6) {
-                                Circle().fill(item.sourceColor).frame(width: 10, height: 10)
-                                Text(item.sourceName)
-                            }
-                        }
-                    } else {
-                        Picker(isEvent ? "Calendar" : "List", selection: $sourceID) {
-                            ForEach(sourceOptions, id: \.id) { option in
-                                Text(option.title).tag(option.id)
-                            }
-                        }
-                    }
-                } footer: {
-                    if item.isReadOnly {
-                        UDFormFooter(text: "This \(isEvent ? "calendar" : "list") is read-only, so this item can't be changed here.")
-                    }
-                }
-                .udFormRow()
-
                 AttachedNotesSection(
                     item: item,
                     onNewNote: { showingNewNote = true },
@@ -86,27 +64,32 @@ struct ItemDetailView: View {
                 if let saveError {
                     Section {
                         Label(saveError, systemImage: "exclamationmark.triangle")
+                            .labelStyle(UDLinkLabelStyle())
+                            .font(.subheadline)
                             .foregroundStyle(UD.errorFg)
                     }
-                    .listRowBackground(UD.errorBg)
+                    .udFormRow()
+                    .listRowSeparator(.hidden)
                 }
 
                 if !item.isReadOnly {
-                    // In the footer, not a row, so the form's rounded row shape doesn't clip it.
                     Section {
-                    } footer: {
                         Button("Delete \(isEvent ? "Event" : "Reminder")", role: .destructive) {
                             confirmingDelete = true
                         }
                         .buttonStyle(UDDestructiveButtonStyle())
-                        .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                    } header: {
+                        UDFormGap()
                     }
+                    .udFormRow()
+                    .listRowSeparator(.hidden)
                 }
             }
             .udFormBackground()
-            .tint(UD.brand600)
             .navigationTitle(isEvent ? "Event" : "Reminder")
             .navigationBarTitleDisplayMode(.inline)
+            // The small label above the title says what this is, so the bar shows only the buttons.
+            .toolbar(removing: .title)
             .toolbar { toolbar }
             .sheet(isPresented: $showingNewNote) {
                 ComposerView(initialKind: .note, attachingTo: item)
@@ -150,10 +133,12 @@ struct ItemDetailView: View {
     @ViewBuilder
     private var editableContent: some View {
         Section {
-            TextField("Add a title", text: $title)
+            TextField("Add a title", text: $title, axis: .vertical)
+                .font(.title2.weight(.bold))
                 .foregroundStyle(UD.textPrimary)
+                .padding(.vertical, 6)
         } header: {
-            UDFormHeader(title: "Title")
+            UDFormHeader(title: isEvent ? "Event" : "Reminder")
         }
         .udFormRow()
 
@@ -163,12 +148,15 @@ struct ItemDetailView: View {
                 DatePicker("Starts", selection: $start, displayedComponents: isAllDay ? [.date] : [.date, .hourAndMinute])
                 DatePicker("Ends", selection: $end, in: start..., displayedComponents: isAllDay ? [.date] : [.date, .hourAndMinute])
                 RepeatPicker(selection: $repeatOption)
+                sourceRow
             } footer: {
                 if repeatOption != item.repeatOption && item.repeatOption != .never {
                     UDFormFooter(text: "Changing the repeat updates this and every later event in the series.")
+                        .listRowInsets(UD.rowInsets)
                 }
             }
             .udFormRow()
+            .udValuePicker()
             .onChange(of: start) { oldStart, newStart in
                 // Keep the duration when the start moves, like Apple Calendar does.
                 end = newStart.addingTimeInterval(max(end.timeIntervalSince(oldStart), 0))
@@ -181,13 +169,17 @@ struct ItemDetailView: View {
                     Toggle("Include time", isOn: $includeTime)
                     RepeatPicker(selection: $repeatOption)
                 }
+                sourceRow
             }
             .udFormRow()
+            .udValuePicker()
         }
 
         Section {
             TextField("Optional", text: $notes, axis: .vertical)
                 .lineLimit(4...10)
+                .padding(.vertical, 8)
+                .listRowSeparator(.hidden)
         } header: {
             UDFormHeader(title: "Apple notes")
         }
@@ -198,16 +190,25 @@ struct ItemDetailView: View {
     private var readOnlyContent: some View {
         Section {
             Text(item.title)
-                .font(.title3.weight(.bold))
+                .font(.title2.weight(.bold))
                 .foregroundStyle(UD.textPrimary)
+                .padding(.vertical, 6)
             if let when = whenLabel {
                 LabeledContent(isEvent ? "When" : "Due", value: when)
             }
             if item.repeatOption != .never {
                 LabeledContent("Repeat", value: item.repeatOption.label)
             }
+            sourceRow
+        } header: {
+            UDFormHeader(title: isEvent ? "Event" : "Reminder")
+        } footer: {
+            UDFormFooter(text: "This \(isEvent ? "calendar" : "list") is read-only, so this item can't be changed here.")
+                .padding(.top, 8)
+                .listRowInsets(UD.rowInsets)
         }
         .udFormRow()
+        .udValuePicker()
         if let itemNotes = item.notes, !itemNotes.isEmpty {
             Section {
                 Text(itemNotes)
@@ -216,6 +217,27 @@ struct ItemDetailView: View {
                 UDFormHeader(title: "Apple notes")
             }
             .udFormRow()
+        }
+    }
+
+    /// The calendar or list the item lives in: a menu to move it, or just its
+    /// name and color dot when the item can't be changed.
+    @ViewBuilder
+    private var sourceRow: some View {
+        if item.isReadOnly {
+            LabeledContent(isEvent ? "Calendar" : "List") {
+                HStack(spacing: 6) {
+                    Circle().fill(item.sourceColor).frame(width: 7, height: 7)
+                    Text(item.sourceName)
+                }
+            }
+        } else {
+            Picker(isEvent ? "Calendar" : "List", selection: $sourceID) {
+                ForEach(sourceOptions, id: \.id) { option in
+                    Text(option.title).tag(option.id)
+                }
+            }
+            .udPickerValue()
         }
     }
 
@@ -238,7 +260,7 @@ struct ItemDetailView: View {
             }
         } else {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
+                UDToolbarCancelButton { dismiss() }
             }
             ToolbarItem(placement: .confirmationAction) {
                 UDToolbarConfirmButton { saveTapped() }
