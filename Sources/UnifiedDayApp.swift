@@ -71,6 +71,28 @@ extension EnvironmentValues {
     @Entry var noteLinkKeys: Set<String> = []
     /// Set by screens that have their own Save button, so the floating + steps aside.
     @Entry var composerButtonHidden: Binding<Bool> = .constant(false)
+    /// The last deleted note, set by the screens that delete notes so a shake can bring it back.
+    @Entry var lastDeletedNote: Binding<DeletedNote?> = .constant(nil)
+}
+
+/// What a shake offers to undo: the newest change to an event or reminder, or a deleted note.
+enum PendingUndo {
+    case item(UndoAction)
+    case note(DeletedNote)
+
+    var title: String {
+        switch self {
+        case .item(let action): action.title
+        case .note: "Undo Delete Note"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .item(let action): action.item.title
+        case .note(let note): note.displayTitle
+        }
+    }
 }
 
 @main
@@ -100,6 +122,8 @@ struct RootView: View {
     @State private var calendarDay = Calendar.current.startOfDay(for: .now)
     @State private var composerButtonHidden = false
     @State private var showingUndo = false
+    @State private var pendingUndo: PendingUndo?
+    @State private var lastDeletedNote: DeletedNote?
     @State private var openedFirstTab = false
     @AppStorage(AppTab.orderKey) private var tabOrder = ""
     @Environment(\.scenePhase) private var scenePhase
@@ -128,6 +152,7 @@ struct RootView: View {
         .environment(eventKit)
         .environment(\.noteLinkKeys, noteLinkKeys)
         .environment(\.composerButtonHidden, $composerButtonHidden)
+        .environment(\.lastDeletedNote, $lastDeletedNote)
         .overlay(alignment: .bottomTrailing) {
             // Hidden on Settings: nothing to add there, and it covered the last rows.
             if !composerButtonHidden && selectedTab != .settings
@@ -180,14 +205,25 @@ struct RootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .deviceDidShake)) { _ in
             // The note editor keeps iOS's own text undo, so shakes there are left alone.
-            guard eventKit.lastUndo != nil, !composerButtonHidden else { return }
+            guard !composerButtonHidden else { return }
+            // Offer whichever happened last: a change to an item, or a deleted note.
+            switch (eventKit.lastUndo, lastDeletedNote) {
+            case let (action?, note?):
+                pendingUndo = action.date > note.date ? .item(action) : .note(note)
+            case let (action?, nil):
+                pendingUndo = .item(action)
+            case let (nil, note?):
+                pendingUndo = .note(note)
+            case (nil, nil):
+                return
+            }
             showingUndo = true
         }
-        .alert(eventKit.lastUndo?.title ?? "Undo", isPresented: $showingUndo, presenting: eventKit.lastUndo) { _ in
+        .alert(pendingUndo?.title ?? "Undo", isPresented: $showingUndo, presenting: pendingUndo) { pending in
             Button("Cancel", role: .cancel) {}
-            Button("Undo") { undo() }
-        } message: { action in
-            Text(action.item.title)
+            Button("Undo") { undo(pending) }
+        } message: { pending in
+            Text(pending.message)
         }
         .task(id: eventKit.changeCount) {
             await eventKit.refreshAlerts()
@@ -240,8 +276,14 @@ struct RootView: View {
     }
 
     /// Undoes the last change. A deleted item comes back as a new copy, so its
-    /// attached notes move over to the copy.
-    private func undo() {
+    /// attached notes move over to the copy. A deleted note comes back as a new note.
+    private func undo(_ pending: PendingUndo) {
+        if case .note(let note) = pending {
+            note.restore(in: modelContext)
+            lastDeletedNote = nil
+            modelContext.saveNotes(reportingTo: eventKit)
+            return
+        }
         guard let restored = eventKit.undo() else { return }
         for link in noteLinks where link.matches(restored.old) {
             link.externalID = restored.new.externalIdentifier

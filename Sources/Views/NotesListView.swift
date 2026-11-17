@@ -25,6 +25,7 @@ struct NotesListView: View {
 
     @Environment(EventKitService.self) private var eventKit
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.lastDeletedNote) private var lastDeletedNote
     @Query private var notes: [Note]
     @Query(sort: \NoteFolder.name) private var folders: [NoteFolder]
     @AppStorage(NotesListView.folderKey) private var folderID = ""
@@ -261,6 +262,7 @@ struct NotesListView: View {
     }
 
     private func delete(_ note: Note) {
+        lastDeletedNote.wrappedValue = DeletedNote(note)
         modelContext.delete(note)
         modelContext.saveNotes(reportingTo: eventKit)
     }

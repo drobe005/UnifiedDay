@@ -39,7 +39,7 @@ struct CalendarView: View {
     @State private var rangeItems: [TimelineItem] = []
     @State private var customStart = Calendar.current.startOfDay(for: .now)
     @State private var customEnd = Calendar.current.date(byAdding: .day, value: 6, to: Calendar.current.startOfDay(for: .now)) ?? .now
-    @State private var markedDays = Set<Date>()
+    @State private var markedDays: [Date: EventKitService.DayMarks] = [:]
     @State private var hasLoaded = false
 
     private var calendar: Calendar { .current }
@@ -393,7 +393,7 @@ struct CalendarView: View {
               let last = visibleDays.last,
               let end = calendar.date(byAdding: .day, value: 1, to: last) else { return }
         // Dots follow the Include menu, so a day only gets one when the list would show something.
-        let marks = await eventKit.daysWithItems(
+        let marks = await eventKit.dayMarks(
             from: first,
             to: end,
             events: kind != .reminders,
@@ -410,7 +410,7 @@ struct CalendarGrid: View {
     /// The month being shown. Days outside it are dimmed. Nil in week mode.
     let month: Date?
     @Binding var selectedDay: Date
-    let markedDays: Set<Date>
+    let markedDays: [Date: EventKitService.DayMarks]
 
     private var calendar: Calendar { .current }
 
@@ -439,7 +439,8 @@ struct CalendarGrid: View {
         let isSelected = calendar.isDate(day, inSameDayAs: selectedDay)
         let isToday = calendar.isDateInToday(day)
         let isDimmed = month.map { !calendar.isDate(day, equalTo: $0, toGranularity: .month) } ?? false
-        let isMarked = markedDays.contains(day)
+        let marks = markedDays[day]
+        let isMarked = marks != nil
 
         return Button {
             selectedDay = day
@@ -459,10 +460,7 @@ struct CalendarGrid: View {
                     }
                     .foregroundStyle(dayColor(isSelected: isSelected, isToday: isToday, isDimmed: isDimmed))
 
-                Circle()
-                    .fill(UD.brand500)
-                    .frame(width: 5, height: 5)
-                    .opacity(isMarked ? 1 : 0)
+                DayDots(marks: marks)
             }
             .frame(maxWidth: .infinity, minHeight: 44)
             .contentShape(Rectangle())
@@ -477,5 +475,34 @@ struct CalendarGrid: View {
         if isSelected { return .white }
         if isToday { return UD.brand700 }
         return isDimmed ? UD.textQuaternary : UD.textPrimary
+    }
+}
+
+/// Up to three dots under a day: one per calendar with events that day, in that
+/// calendar's color, then one in the reminder color when a reminder is due.
+/// Keeps its height when empty so every row of days lines up.
+struct DayDots: View {
+    let marks: EventKitService.DayMarks?
+
+    private static let maxDots = 3
+
+    private var colors: [Color] {
+        guard let marks else { return [] }
+        let eventSlots = marks.hasReminder ? Self.maxDots - 1 : Self.maxDots
+        var colors = Array(marks.eventColors.prefix(eventSlots))
+        if marks.hasReminder { colors.append(UD.warningFg) }
+        return colors
+    }
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(Array(colors.enumerated()), id: \.offset) { _, color in
+                Circle()
+                    .fill(color)
+                    .frame(width: 5, height: 5)
+            }
+        }
+        .frame(height: 5)
+        .accessibilityHidden(true)
     }
 }

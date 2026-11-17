@@ -135,6 +135,13 @@ final class NoteLink {
         title = item.title
     }
 
+    init(kindValue: String, externalID: String, localID: String, title: String) {
+        self.kindValue = kindValue
+        self.externalID = externalID
+        self.localID = localID
+        self.title = title
+    }
+
     var kind: TimelineItemKind {
         TimelineItemKind(rawValue: kindValue) ?? .event
     }
@@ -142,6 +149,78 @@ final class NoteLink {
     func matches(_ item: TimelineItem) -> Bool {
         guard kind == item.kind else { return false }
         return (!externalID.isEmpty && externalID == item.externalIdentifier) || localID == item.storeIdentifier
+    }
+}
+
+/// A copy of a note taken just before it's deleted, so a shake can bring it back
+/// with its formatting, pin, folder, attached items, and images.
+struct DeletedNote {
+    private struct Link {
+        let kindValue: String
+        let externalID: String
+        let localID: String
+        let title: String
+    }
+
+    private struct Image {
+        let data: Data?
+        let createdAt: Date
+    }
+
+    private let title: String
+    private let text: String
+    private let richText: Data?
+    private let createdAt: Date
+    private let updatedAt: Date
+    private let isPinned: Bool
+    /// The folder by its id, since the folder itself could be deleted before an undo.
+    private let folderID: UUID?
+    private let links: [Link]
+    private let images: [Image]
+    /// Shown in the undo prompt.
+    let displayTitle: String
+    /// When the note was deleted, so a shake undoes the newest change.
+    let date = Date.now
+
+    init(_ note: Note) {
+        title = note.title
+        text = note.text
+        richText = note.richText
+        createdAt = note.createdAt
+        updatedAt = note.updatedAt
+        isPinned = note.isPinned
+        folderID = note.folder?.uuid
+        links = (note.links ?? []).map {
+            Link(kindValue: $0.kindValue, externalID: $0.externalID, localID: $0.localID, title: $0.title)
+        }
+        images = (note.images ?? []).map { Image(data: $0.data, createdAt: $0.createdAt) }
+        displayTitle = note.displayTitle
+    }
+
+    /// Puts the note back as a new note with the same content.
+    func restore(in context: ModelContext) {
+        let note = Note(title: title, text: text)
+        context.insert(note)
+        note.richText = richText
+        note.createdAt = createdAt
+        note.updatedAt = updatedAt
+        note.isPinned = isPinned
+        if let folderID {
+            let match = FetchDescriptor<NoteFolder>(predicate: #Predicate { $0.uuid == folderID })
+            note.folder = try? context.fetch(match).first
+        }
+        for saved in links {
+            let link = NoteLink(kindValue: saved.kindValue, externalID: saved.externalID, localID: saved.localID, title: saved.title)
+            context.insert(link)
+            link.note = note
+        }
+        for saved in images {
+            guard let data = saved.data else { continue }
+            let image = NoteImage(data: data)
+            image.createdAt = saved.createdAt
+            context.insert(image)
+            image.note = note
+        }
     }
 }
 
