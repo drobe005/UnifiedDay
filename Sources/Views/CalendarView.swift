@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Look-ahead planning: a week strip or month grid, with the selected day's
-/// timeline underneath. The selected day decides which week or month is showing.
+/// events underneath. The selected day decides which week or month is showing.
+/// Events only: reminders live in the Reminders tab, and Today shows both.
 struct CalendarView: View {
     enum Mode: String, CaseIterable, Identifiable {
         case week = "Week"
@@ -15,32 +16,18 @@ struct CalendarView: View {
         var id: String { rawValue }
     }
 
-    enum Kind: String, CaseIterable, Identifiable {
-        case all = "Events and Reminders"
-        case events = "Events"
-        case reminders = "Reminders"
-        var id: String { rawValue }
-
-        func includes(_ item: TimelineItem) -> Bool {
-            switch self {
-            case .all: true
-            case .events: item.kind == .event
-            case .reminders: item.kind == .reminder
-            }
-        }
-    }
-
     @Environment(EventKitService.self) private var eventKit
     @Binding var selectedDay: Date
     @AppStorage("calendarMode") private var mode = Mode.week
     @AppStorage("calendarScope") private var scope = Scope.day
-    @AppStorage("calendarKind") private var kind = Kind.all
     @State private var items: [TimelineItem] = []
     @State private var rangeItems: [TimelineItem] = []
     @State private var customStart = Calendar.current.startOfDay(for: .now)
     @State private var customEnd = Calendar.current.date(byAdding: .day, value: 6, to: Calendar.current.startOfDay(for: .now)) ?? .now
     @State private var markedDays: [Date: EventKitService.DayMarks] = [:]
     @State private var hasLoaded = false
+    /// Days whose list is folded shut. Not saved, so every visit starts open.
+    @State private var collapsedDays: Set<Date> = []
 
     private var calendar: Calendar { .current }
 
@@ -129,13 +116,12 @@ struct CalendarView: View {
             visibleDays.first?.timeIntervalSince1970 ?? 0,
             Double(visibleDays.count),
             Double(eventKit.changeCount),
-            Double(Kind.allCases.firstIndex(of: kind) ?? 0),
         ]) {
             await loadMarks()
         }
     }
 
-    /// What the list shows and which kinds of items, as two compact menu buttons.
+    /// Which days the list covers, as a compact menu button.
     private var filters: some View {
         HStack(spacing: 8) {
             Menu {
@@ -149,15 +135,6 @@ struct CalendarView: View {
             }
             .accessibilityLabel("Show, \(scopeLabel)")
 
-            Menu {
-                Picker("Include", selection: $kind) {
-                    ForEach(Kind.allCases) { Text($0.rawValue).tag($0) }
-                }
-            } label: {
-                FilterChip(icon: "line.3.horizontal.decrease", text: kindLabel)
-            }
-            .accessibilityLabel("Include, \(kind.rawValue)")
-
             Spacer(minLength: 0)
         }
     }
@@ -170,24 +147,19 @@ struct CalendarView: View {
         }
     }
 
-    private var kindLabel: String {
-        switch kind {
-        case .all: "All items"
-        case .events: "Events"
-        case .reminders: "Reminders"
-        }
-    }
-
     private func emptyRow(_ text: String) -> some View {
         UDEmptyListRow(text: text)
     }
 
     private var daySection: some View {
-        let visible = items.filter(kind.includes)
+        let visible = items.filter { $0.kind == .event }
+        let collapsed = isCollapsed(selectedDay)
         return Section {
-            if visible.isEmpty {
+            if collapsed {
+                EmptyView()
+            } else if visible.isEmpty {
                 if hasLoaded {
-                    emptyRow("Nothing scheduled. Tap + to add something.")
+                    emptyRow("No events. Tap + to add one.")
                 }
             } else {
                 ForEach(visible) { item in
@@ -200,7 +172,15 @@ struct CalendarView: View {
                 }
             }
         } header: {
-            UDListHeader(title: dayTitle, count: hasLoaded ? visible.count : nil)
+            UDFoldableHeader(
+                title: dayTitle,
+                count: hasLoaded ? visible.count : nil,
+                isCollapsed: collapsed,
+                showHint: "Shows this day's events",
+                hideHint: "Hides this day's events"
+            ) {
+                toggle(selectedDay)
+            }
         }
     }
 
@@ -209,23 +189,33 @@ struct CalendarView: View {
         let days = rangeDays
         if days.isEmpty {
             Section {
-                emptyRow("Nothing scheduled in this range.")
+                emptyRow("No events in this range.")
             } header: {
                 UDListHeader(title: rangeTitle)
             }
         }
         ForEach(days, id: \.day) { group in
             Section {
-                ForEach(group.items) { item in
-                    TimelineRow(item: item) {
-                        Task { await loadRange() }
-                    } onRemove: { removed, target in
-                        if let target, let range, range.contains(target.day()) { return }
-                        rangeItems.removeAll { $0.id == removed.id }
+                if !isCollapsed(group.day) {
+                    ForEach(group.items) { item in
+                        TimelineRow(item: item) {
+                            Task { await loadRange() }
+                        } onRemove: { removed, target in
+                            if let target, let range, range.contains(target.day()) { return }
+                            rangeItems.removeAll { $0.id == removed.id }
+                        }
                     }
                 }
             } header: {
-                UDListHeader(title: title(for: group.day), count: group.items.count)
+                UDFoldableHeader(
+                    title: title(for: group.day),
+                    count: group.items.count,
+                    isCollapsed: isCollapsed(group.day),
+                    showHint: "Shows this day's events",
+                    hideHint: "Hides this day's events"
+                ) {
+                    toggle(group.day)
+                }
             }
         }
     }
@@ -262,6 +252,17 @@ struct CalendarView: View {
             guard abs(width) > abs(value.translation.height), abs(width) > 50 else { return }
             shiftPeriod(by: width < 0 ? 1 : -1)
         }
+    }
+
+    // MARK: - Folding
+
+    private func isCollapsed(_ day: Date) -> Bool {
+        collapsedDays.contains(calendar.startOfDay(for: day))
+    }
+
+    private func toggle(_ day: Date) {
+        let key = calendar.startOfDay(for: day)
+        if collapsedDays.contains(key) { collapsedDays.remove(key) } else { collapsedDays.insert(key) }
     }
 
     // MARK: - Dates
@@ -312,7 +313,7 @@ struct CalendarView: View {
     private var rangeDays: [(day: Date, items: [TimelineItem])] {
         guard let range else { return [] }
         var byDay: [Date: [TimelineItem]] = [:]
-        for item in rangeItems where kind.includes(item) {
+        for item in rangeItems where item.kind == .event {
             guard let start = item.startDate else { continue }
             let last = max(start, (item.endDate ?? start).addingTimeInterval(item.endDate == nil ? 0 : -1))
             var day = calendar.startOfDay(for: max(start, range.lowerBound))
@@ -392,13 +393,8 @@ struct CalendarView: View {
         guard let first = visibleDays.first,
               let last = visibleDays.last,
               let end = calendar.date(byAdding: .day, value: 1, to: last) else { return }
-        // Dots follow the Include menu, so a day only gets one when the list would show something.
-        let marks = await eventKit.dayMarks(
-            from: first,
-            to: end,
-            events: kind != .reminders,
-            reminders: kind != .events
-        )
+        // Dots mark events only, so a day gets one only when its list would show something.
+        let marks = await eventKit.dayMarks(from: first, to: end, events: true, reminders: false)
         guard !Task.isCancelled else { return }
         markedDays = marks
     }

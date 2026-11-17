@@ -146,23 +146,16 @@ struct RemindersListView: View {
     private func header(for group: Group) -> some View {
         let collapsed = isCollapsed(group)
         return HStack(spacing: 4) {
-            Button {
-                withAnimation { toggle(group) }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(UD.textTertiary)
-                        .rotationEffect(.degrees(collapsed ? 0 : 90))
-                    UDListHeader(title: group.name, count: group.items.count)
-                }
-                .contentShape(Rectangle())
+            UDFoldableHeader(
+                title: group.name,
+                count: group.items.count,
+                isCollapsed: collapsed,
+                isDisabled: isSearching,
+                showHint: "Shows this list's reminders",
+                hideHint: "Hides this list's reminders"
+            ) {
+                toggle(group)
             }
-            .buttonStyle(.plain)
-            .disabled(isSearching)
-            .accessibilityLabel(group.name)
-            .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
-            .accessibilityHint(collapsed ? "Shows this list's reminders" : "Hides this list's reminders")
 
             if group.canDelete {
                 Menu {

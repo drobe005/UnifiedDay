@@ -63,6 +63,38 @@ struct UDListHeader: View {
     }
 }
 
+/// A list section heading that folds its rows open or shut when tapped.
+/// The chevron points right when shut and down when open.
+struct UDFoldableHeader: View {
+    let title: String
+    var count: Int?
+    let isCollapsed: Bool
+    var isDisabled = false
+    var showHint = "Shows this section"
+    var hideHint = "Hides this section"
+    let toggle: () -> Void
+
+    var body: some View {
+        Button {
+            withAnimation { toggle() }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(UD.textTertiary)
+                    .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                UDListHeader(title: title, count: count)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .accessibilityLabel(title)
+        .accessibilityValue(isCollapsed ? "Collapsed" : "Expanded")
+        .accessibilityHint(isCollapsed ? showHint : hideHint)
+    }
+}
+
 /// Placeholder row for an empty section in a list of cards, drawn as a dashed box.
 struct UDEmptyListRow: View {
     let text: String

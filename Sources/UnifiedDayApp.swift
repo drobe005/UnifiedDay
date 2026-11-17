@@ -162,7 +162,7 @@ struct RootView: View {
                 Button {
                     composerRequest = ComposerRequest(
                         date: composerDate,
-                        kind: selectedTab == .notes ? .note : .reminder
+                        kind: composerKind
                     )
                 } label: {
                     Image(systemName: "plus")
@@ -292,6 +292,16 @@ struct RootView: View {
             link.localID = restored.new.storeIdentifier
         }
         modelContext.saveNotes(reportingTo: eventKit)
+    }
+
+    /// What + starts on: a note on Notes, an event on Calendar (which lists events
+    /// only, so a new reminder would not show there), a reminder everywhere else.
+    private var composerKind: ComposerView.DraftKind {
+        switch selectedTab {
+        case .notes: .note
+        case .calendar: .event
+        default: .reminder
+        }
     }
 
     /// New items start on the day selected in Calendar. Other days default to 9 AM.

@@ -14,6 +14,8 @@ struct TodayView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var searchResults: [TimelineItem] = []
     @State private var isSearching = false
+    /// Sections folded shut, saved as comma-separated section titles.
+    @AppStorage("collapsedTodaySections") private var collapsedSections = ""
     @Query(sort: \Note.updatedAt, order: .reverse) private var notes: [Note]
 
     private var matchingNotes: [Note] {
@@ -115,13 +117,15 @@ struct TodayView: View {
         List {
             ForEach(sections, id: \.title) { section in
                 Section {
-                    ForEach(section.items) { item in
-                        TimelineRow(item: item) {
-                            Task { await load() }
-                        } onRemove: { removed, target in
-                            // Rescheduling to today keeps the row; the reload moves it.
-                            if let target, Calendar.current.isDateInToday(target.day()) { return }
-                            items.removeAll { $0.id == removed.id }
+                    if !isCollapsed(section.title) {
+                        ForEach(section.items) { item in
+                            TimelineRow(item: item) {
+                                Task { await load() }
+                            } onRemove: { removed, target in
+                                // Rescheduling to today keeps the row; the reload moves it.
+                                if let target, Calendar.current.isDateInToday(target.day()) { return }
+                                items.removeAll { $0.id == removed.id }
+                            }
                         }
                     }
                 } header: {
@@ -132,7 +136,13 @@ struct TodayView: View {
                             summaryBadges
                                 .padding(.top, 4)
                         }
-                        UDListHeader(title: section.title, count: section.items.count)
+                        UDFoldableHeader(
+                            title: section.title,
+                            count: section.items.count,
+                            isCollapsed: isCollapsed(section.title)
+                        ) {
+                            toggle(section.title)
+                        }
                     }
                 }
             }
@@ -207,6 +217,20 @@ struct TodayView: View {
             Spacer(minLength: 0)
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private var collapsedTitles: Set<String> {
+        Set(collapsedSections.split(separator: ",").map(String.init))
+    }
+
+    private func isCollapsed(_ title: String) -> Bool {
+        collapsedTitles.contains(title)
+    }
+
+    private func toggle(_ title: String) {
+        var titles = collapsedTitles
+        if titles.contains(title) { titles.remove(title) } else { titles.insert(title) }
+        collapsedSections = titles.sorted().joined(separator: ",")
     }
 
     private var sections: [(title: String, items: [TimelineItem])] {
