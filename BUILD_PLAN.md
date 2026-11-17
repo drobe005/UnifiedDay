@@ -182,6 +182,9 @@ colors, no new dependencies. Widgets and the `mac` branch are untouched.
    magnifying glass button on iOS 26 and later. Known issue: while the search
    field is open, iOS draws the large title against the left screen edge.)
 3. Notes: list, folders, editor.
+   (done 2026-11-17, checked in the Simulator in light and dark. New Folder
+   moved from the toolbar to a row under the folders, as in Figma. The Paste
+   button keeps Apple's filled look, which the app cannot restyle.)
 4. Composer sheets, item detail, Needs Attention, Settings, Tab Order, empty and
    access-needed states, onboarding.
 

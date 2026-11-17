@@ -24,10 +24,10 @@ struct NoteEditorView: View {
     @State private var deleteOnClose = false
 
     var body: some View {
-        Form {
+        List {
             Section {
-                TextField("Title", text: edit(\.title))
-                    .font(.title3.weight(.bold))
+                TextField("Title", text: edit(\.title), axis: .vertical)
+                    .font(.title2.weight(.bold))
                     .foregroundStyle(UD.textPrimary)
                 if #available(iOS 26.0, *) {
                     RichNoteEditor(note: note)
@@ -36,16 +36,18 @@ struct NoteEditorView: View {
                         .lineLimit(8...)
                 }
             } footer: {
-                Label("Saved in UnifiedDay and your iCloud. Not visible in Apple's apps.", systemImage: "info.circle")
-                    .font(.footnote)
-                    .foregroundStyle(UD.textTertiary)
+                UDSavedInAppNote()
             }
             .udFormRow()
+            // Title and text read as one page, with no line between them.
+            .listRowSeparator(.hidden)
 
             NoteImagesSection(note: note, viewing: $viewingImage)
 
             Section {
                 NoteFolderPicker(selection: folderSelection)
+            } header: {
+                UDFormHeader(title: "Folder")
             }
             .udFormRow()
 
@@ -56,6 +58,7 @@ struct NoteEditorView: View {
                 Button("Attach Events or Reminders", systemImage: "plus") {
                     showingItemPicker = true
                 }
+                .udLinkRow()
             } header: {
                 UDFormHeader(title: "Attached to")
             }
@@ -75,24 +78,28 @@ struct NoteEditorView: View {
                 Button("Link a Note", systemImage: "link") {
                     showingNoteLinkPicker = true
                 }
+                .udLinkRow()
             } header: {
                 UDFormHeader(title: "Linked notes")
             }
             .udFormRow()
 
-            // In the footer, not a row, so the form's rounded row shape doesn't clip it.
             Section {
-            } footer: {
                 Button("Delete Note", role: .destructive) {
                     confirmingDelete = true
                 }
                 .buttonStyle(UDDestructiveButtonStyle())
-                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+            } header: {
+                UDFormGap()
             }
+            .udFormRow()
+            .listRowSeparator(.hidden)
         }
         .udFormBackground()
         .navigationTitle("Note")
         .navigationBarTitleDisplayMode(.inline)
+        // The note's own title is the heading, so the bar shows only the buttons.
+        .toolbar(removing: .title)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 ShareLink(item: note.shareText)
@@ -212,6 +219,8 @@ struct RichNoteEditor: View {
     var body: some View {
         TextEditor(text: $text, selection: $selection)
             .focused($isFocused)
+            .foregroundStyle(UD.textSecondary)
+            .scrollContentBackground(.hidden)
             .frame(minHeight: 200)
             .overlay(alignment: .topLeading) {
                 if text.characters.isEmpty {
@@ -222,6 +231,8 @@ struct RichNoteEditor: View {
                         .allowsHitTesting(false)
                 }
             }
+            // The editor insets its text by 5 points. Pull it back to the margin.
+            .padding(.horizontal, -5)
             .toolbar {
                 if isFocused {
                     // One item, so every button fits instead of spilling into a "more" menu.
@@ -401,10 +412,6 @@ struct AttachedItemRow: View {
     var body: some View {
         // A tap gesture, not a Button: a plain Button in this Form row didn't respond.
         HStack(spacing: 12) {
-            Image(systemName: link.kind == .event ? "calendar" : "checklist")
-                .foregroundStyle(UD.textTertiary)
-                .frame(width: 24)
-                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item?.title ?? link.title)
                     .font(.body.weight(.medium))
@@ -494,14 +501,10 @@ struct ItemPickerView: View {
                     .udFormRow()
             }
             .udFormBackground()
-            .listRowSeparatorTint(UD.borderSecondary)
             .safeAreaInset(edge: .top) {
-                Picker("Type", selection: $tab) {
-                    ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.bottom, 8)
+                UDTextTabs(options: Tab.allCases.map { ($0, $0.rawValue) }, selection: $tab)
+                    .padding(.horizontal, UD.screenPadding)
+                    .background(UD.bgScreen)
             }
             .overlay {
                 if !eventKit.accessGranted {
@@ -558,7 +561,7 @@ struct ItemPickerView: View {
             HStack(spacing: 12) {
                 Image(systemName: isChecked ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundStyle(isChecked ? UD.brand600 : UD.borderPrimary)
+                    .foregroundStyle(isChecked ? UD.brand600 : UD.textQuaternary)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.title)
@@ -615,7 +618,9 @@ struct AttachedNotesSection: View {
                 }
             }
             Button("New Note", systemImage: "plus", action: onNewNote)
+                .udLinkRow()
             Button("Attach Existing Note", systemImage: "doc.text", action: onAttachExisting)
+                .udLinkRow()
         } header: {
             UDFormHeader(title: "Attached notes")
         }
@@ -669,7 +674,6 @@ struct NotePickerView: View {
                 .udFormRow()
             }
             .udFormBackground()
-            .listRowSeparatorTint(UD.borderSecondary)
             .overlay {
                 if available.isEmpty {
                     if searchText.isEmpty {
@@ -723,10 +727,12 @@ struct NoteFolderPicker: View {
                 Text(folder.name).tag(Optional(folder))
             }
         }
+        .udValuePicker()
         Button("New Folder", systemImage: "folder.badge.plus") {
             name = ""
             isNaming = true
         }
+        .udLinkRow()
         .alert("New Folder", isPresented: $isNaming) {
             TextField("Name", text: $name)
             Button("Cancel", role: .cancel) {}
@@ -794,12 +800,14 @@ struct NoteImagesSection: View {
                 .padding(.vertical, 4)
             }
             PhotosPicker(selection: $pickedPhotos, maxSelectionCount: 10, matching: .images) {
-                Label("Add Photos", systemImage: "photo.on.rectangle")
+                Label("Add Photos", systemImage: "photo.badge.plus")
             }
+            .udLinkRow()
             PasteButton(payloadType: PastedImage.self) { pasted in
                 add(pasted.map(\.data))
             }
             .labelStyle(.titleAndIcon)
+            .tint(UD.brand600)
         } header: {
             UDFormHeader(title: "Images")
         }

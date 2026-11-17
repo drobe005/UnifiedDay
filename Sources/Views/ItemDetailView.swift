@@ -48,7 +48,7 @@ struct ItemDetailView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            List {
                 if item.isReadOnly {
                     readOnlyContent
                 } else {

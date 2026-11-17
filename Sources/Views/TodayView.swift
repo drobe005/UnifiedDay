@@ -170,7 +170,7 @@ struct TodayView: View {
             if !matchingNotes.isEmpty {
                 Section {
                     ForEach(matchingNotes) { note in
-                        NoteCardLink(note: note)
+                        NoteCardLink(note: note, showsDivider: note !== matchingNotes.last)
                     }
                 } header: {
                     UDListHeader(title: "Notes", count: matchingNotes.count)

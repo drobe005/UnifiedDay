@@ -93,6 +93,7 @@ struct NotesListView: View {
             }
             .navigationTitle(title)
             .searchable(text: $searchText, prompt: showsFolders ? "Search folders" : "Search notes")
+            .udMinimizedSearch()
             .toolbar { toolbar }
             .alert(editingFolder == nil ? "New Folder" : "Rename Folder", isPresented: $isNamingFolder) {
                 TextField("Name", text: $folderName)
@@ -131,16 +132,16 @@ struct NotesListView: View {
         return List {
             if !pinned.isEmpty {
                 Section {
-                    ForEach(pinned, content: row)
+                    ForEach(pinned) { row($0, isLast: $0 === pinned.last) }
                 } header: {
-                    UDListHeader(title: "Pinned", count: pinned.count)
+                    UDListHeader(title: "Pinned")
                 }
             }
             Section {
-                ForEach(others, content: row)
+                ForEach(others) { row($0, isLast: $0 === others.last) }
             } header: {
                 if !pinned.isEmpty && !others.isEmpty {
-                    UDListHeader(title: "Notes", count: others.count)
+                    UDListHeader(title: "Notes")
                 }
             }
         }
@@ -169,36 +170,46 @@ struct NotesListView: View {
     private var folderList: some View {
         let shown = folders.filter { trimmedSearch.isEmpty || $0.name.localizedCaseInsensitiveContains(trimmedSearch) }
         return List {
-            if trimmedSearch.isEmpty {
-                folderButton("All Notes", systemImage: "tray.full", count: notes.count, id: "")
-            }
-            ForEach(shown) { folder in
-                folderButton(folder.name, systemImage: "folder", count: folder.notes?.count ?? 0, id: folder.uuid.uuidString)
-                    .swipeActions(edge: .trailing) {
-                        // Not marked destructive: that role slides the row away
-                        // before the person answers.
-                        Button("Delete", systemImage: "trash") {
-                            folderToDelete = folder
+            // A section with a small gap as its heading, so no line sits above the first row.
+            Section {
+                if trimmedSearch.isEmpty {
+                    folderButton("All Notes", count: notes.count, id: "")
+                }
+                ForEach(shown) { folder in
+                    folderButton(folder.name, count: folder.notes?.count ?? 0, id: folder.uuid.uuidString)
+                        .swipeActions(edge: .trailing) {
+                            // Not marked destructive: that role slides the row away
+                            // before the person answers.
+                            Button("Delete", systemImage: "trash") {
+                                folderToDelete = folder
+                            }
+                            .tint(UD.errorFg)
+                            Button("Rename", systemImage: "pencil") {
+                                nameFolder(folder)
+                            }
+                            .tint(UD.textTertiary)
                         }
-                        .tint(UD.errorFg)
-                        Button("Rename", systemImage: "pencil") {
-                            nameFolder(folder)
+                        .contextMenu {
+                            Button("Rename", systemImage: "pencil") { nameFolder(folder) }
+                            Button("Delete", systemImage: "trash", role: .destructive) {
+                                folderToDelete = folder
+                            }
                         }
-                        .tint(UD.orange500)
+                }
+                if trimmedSearch.isEmpty {
+                    folderButton("No Folder", count: notes.filter { $0.folder == nil }.count, id: Self.unfiledFolderID)
+                    Button("New Folder", systemImage: "folder.badge.plus") {
+                        nameFolder(nil)
                     }
-                    .contextMenu {
-                        Button("Rename", systemImage: "pencil") { nameFolder(folder) }
-                        Button("Delete", systemImage: "trash", role: .destructive) {
-                            folderToDelete = folder
-                        }
-                    }
-            }
-            if trimmedSearch.isEmpty {
-                folderButton("No Folder", systemImage: "tray", count: notes.filter { $0.folder == nil }.count, id: Self.unfiledFolderID)
+                    .udLinkRow()
+                    .udFormRow()
+                    .listRowSeparator(.hidden, edges: .bottom)
+                }
+            } header: {
+                UDFormGap()
             }
         }
         .udFormBackground()
-        .listRowSeparatorTint(UD.borderSecondary)
         .contentMargins(.bottom, ComposerButtonClearance.height, for: .scrollContent)
         .overlay {
             if !trimmedSearch.isEmpty && shown.isEmpty {
@@ -207,25 +218,24 @@ struct NotesListView: View {
         }
     }
 
-    private func folderButton(_ name: String, systemImage: String, count: Int, id: String) -> some View {
+    private func folderButton(_ name: String, count: Int, id: String) -> some View {
         Button {
             folderID = id
             showsFolders = false
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: systemImage)
-                    .foregroundStyle(UD.textTertiary)
-                    .frame(width: 24)
                 Text(name)
-                    .font(.body.weight(.medium))
+                    .font(.body)
                     .foregroundStyle(UD.textPrimary)
                 Spacer(minLength: 8)
-                UDBadge(text: "\(count)")
+                Text("\(count)")
+                    .font(.body)
+                    .monospacedDigit()
+                    .foregroundStyle(UD.textTertiary)
                 Image(systemName: "chevron.right")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(UD.textQuaternary)
             }
-            .frame(minHeight: 36)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -234,15 +244,16 @@ struct NotesListView: View {
         .accessibilityValue("\(count) notes")
     }
 
-    private func row(_ note: Note) -> some View {
-        NoteCardLink(note: note)
+    private func row(_ note: Note, isLast: Bool) -> some View {
+        // The Pinned heading already says which notes are pinned.
+        NoteCardLink(note: note, showsPin: false, showsDivider: !isLast)
         .swipeActions(edge: .leading) {
             Button {
                 togglePin(note)
             } label: {
                 Label(note.isPinned ? "Unpin" : "Pin", systemImage: note.isPinned ? "pin.slash" : "pin")
             }
-            .tint(UD.orange500)
+            .tint(UD.brand600)
         }
         .swipeActions(edge: .trailing) {
             // Not marked destructive: that role slides the row away before the person answers.
@@ -310,35 +321,22 @@ struct NotesListView: View {
         modelContext.saveNotes(reportingTo: eventKit)
     }
 
-    /// One half of the Notes and Folders toggle. The active one is tinted.
-    private func viewButton(_ title: String, systemImage: String, showsFolders target: Bool) -> some View {
-        let isActive = showsFolders == target
-        return Button {
-            showsFolders = target
-        } label: {
-            Label(title, systemImage: systemImage)
-                .symbolVariant(isActive ? .fill : .none)
-        }
-        .labelStyle(.iconOnly)
-        // Toolbar buttons take their color from tint, not foregroundStyle.
-        .tint(isActive ? Color.accentColor : Color.secondary)
-        .accessibilityAddTraits(isActive ? .isSelected : [])
-    }
-
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        // Two plain buttons, not a segmented picker: the toolbar already draws a
-        // glass capsule, and a picker inside it looked doubled and animated unevenly.
-        ToolbarItemGroup(placement: .topBarLeading) {
-            viewButton("Notes", systemImage: "note.text", showsFolders: false)
-            viewButton("Folders", systemImage: "folder", showsFolders: true)
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            if showsFolders {
-                Button("New Folder", systemImage: "folder.badge.plus") {
-                    nameFolder(nil)
+        if showsFolders {
+            // Folders reads like a screen one step in from Notes, so it gets a way back.
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    showsFolders = false
+                } label: {
+                    Label("Notes", systemImage: "chevron.left")
+                        .labelStyle(.titleAndIcon)
                 }
-            } else {
+                .accessibilityHint("Shows the notes list")
+            }
+        } else {
+            UDOverlineToolbarItem(text: "\(visible.count) \(visible.count == 1 ? "note" : "notes")")
+            ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Picker("Sort by", selection: $sort) {
                         ForEach(Sort.allCases) { Text($0.rawValue).tag($0) }
@@ -348,54 +346,68 @@ struct NotesListView: View {
                     }
                 } label: {
                     Image(systemName: filter == .all
-                        ? "line.3.horizontal.decrease.circle"
+                        ? "line.3.horizontal.decrease"
                         : "line.3.horizontal.decrease.circle.fill")
                 }
                 .accessibilityLabel("Sort and filter")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Folders", systemImage: "folder") {
+                    showsFolders = true
+                }
             }
         }
     }
 }
 
-/// A note as a card in a plain list, opening the editor on tap.
+/// A note as a plain row in a list, opening the editor on tap.
 struct NoteCardLink: View {
     let note: Note
+    var showsPin = true
+    /// Draws the hairline under the row. Off for the last row of a group.
+    var showsDivider = true
 
     var body: some View {
-        UDCard {
-            NoteRow(note: note)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
-        }
-        // The link sits behind the card, so the list doesn't add its own chevron.
-        .background {
-            NavigationLink {
-                NoteEditorView(note: note)
-            } label: {
-                EmptyView()
+        NoteRow(note: note, showsPin: showsPin)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 12)
+            .overlay(alignment: .bottom) {
+                if showsDivider { UDDivider() }
             }
-            .opacity(0)
-        }
-        .listRowBackground(Color.clear)
-        .listRowSeparator(.hidden)
-        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+            // The link sits behind the row, so the list doesn't add its own chevron.
+            .background {
+                NavigationLink {
+                    NoteEditorView(note: note)
+                } label: {
+                    EmptyView()
+                }
+                .opacity(0)
+            }
+            .udPlainRow()
     }
 }
 
 struct NoteRow: View {
     let note: Note
+    var showsPin = true
+
+    /// Edit date, then the folder name when the note is in one.
+    private var meta: String {
+        let date = note.updatedAt.formatted(date: .abbreviated, time: .omitted)
+        return note.folder.map { "\(date) · \($0.name)" } ?? date
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-                if note.isPinned {
+                if showsPin && note.isPinned {
                     Image(systemName: "pin.fill")
                         .font(.caption)
-                        .foregroundStyle(UD.orange500)
+                        .foregroundStyle(UD.textTertiary)
                         .accessibilityLabel("Pinned")
                 }
                 Text(note.displayTitle)
-                    .font(.body.weight(.semibold))
+                    .font(.body.weight(.medium))
                     .foregroundStyle(UD.textPrimary)
                     .lineLimit(1)
             }
@@ -405,12 +417,9 @@ struct NoteRow: View {
                     .foregroundStyle(UD.textSecondary)
                     .lineLimit(2)
             }
-            HStack(spacing: 8) {
-                Text(note.updatedAt.formatted(date: .abbreviated, time: .omitted))
-                if let folder = note.folder {
-                    UDBadge(text: folder.name)
-                        .accessibilityLabel("Folder \(folder.name)")
-                }
+            HStack(spacing: 6) {
+                Text(meta)
+                    .accessibilityLabel(note.folder.map { "\(note.updatedAt.formatted(date: .abbreviated, time: .omitted)), folder \($0.name)" } ?? meta)
                 if !(note.images ?? []).isEmpty {
                     Image(systemName: "photo")
                         .accessibilityLabel("Has images")
@@ -422,7 +431,7 @@ struct NoteRow: View {
             }
             .font(.caption)
             .foregroundStyle(UD.textTertiary)
-            .padding(.top, 4)
+            .padding(.top, 2)
         }
     }
 }

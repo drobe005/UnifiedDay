@@ -49,7 +49,7 @@ struct ComposerView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            List {
                 if attachedItem == nil {
                     // Sits on the background, not in a card, like the Figma design.
                     Section {
@@ -87,9 +87,7 @@ struct ComposerView: View {
                         TextField("Write something", text: $notes, axis: .vertical)
                             .lineLimit(6...)
                     } footer: {
-                        Label("Saved in UnifiedDay and your iCloud. Not visible in Apple's apps.", systemImage: "info.circle")
-                            .font(.footnote)
-                            .foregroundStyle(UD.textTertiary)
+                        UDSavedInAppNote()
                     }
                     .udFormRow()
 

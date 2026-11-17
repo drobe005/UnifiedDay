@@ -4,23 +4,7 @@ import SwiftUI
 // Figma "Primary Screens" page: plain rows with hairlines, small gray labels, and
 // brand blue only for actions.
 
-// MARK: - Card
-
-/// White rounded container from the earlier card design. Only the screens that
-/// have not moved to plain rows yet still use it.
-struct UDCard<Content: View>: View {
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(spacing: 0) { content }
-            .background(UD.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: UD.cardRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: UD.cardRadius, style: .continuous)
-                    .strokeBorder(UD.borderSecondary)
-            )
-    }
-}
+// MARK: - Divider
 
 /// Hairline between rows.
 struct UDDivider: View {
@@ -465,10 +449,26 @@ extension View {
     /// Plain look for the rows of a form section: no card behind them, the screen
     /// margin on both sides, and hairlines that stop at the margin.
     func udFormRow() -> some View {
-        listRowBackground(Color.clear)
+        frame(maxWidth: .infinity, alignment: .leading)
+            .listRowBackground(Color.clear)
             .listRowInsets(UD.rowInsets)
             .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
             .alignmentGuide(.listRowSeparatorTrailing) { $0[.trailing] }
+    }
+
+    /// A form row's label in gray and its chosen value in the darker text color,
+    /// so only real actions are brand blue.
+    func udValuePicker() -> some View {
+        foregroundStyle(UD.textSecondary)
+            .tint(UD.textPrimary)
+    }
+
+    /// Brand text for a row that does something, like New Folder or Link a Note.
+    func udLinkRow() -> some View {
+        font(.body.weight(.medium))
+            .foregroundStyle(UD.brand700)
+            .tint(UD.brand700)
+            .labelStyle(UDLinkLabelStyle())
     }
 
     /// A row that draws its own hairline (or none): no background, no list
@@ -499,6 +499,41 @@ struct UDFormFooter: View {
         Text(text)
             .font(.caption)
             .foregroundStyle(UD.textTertiary)
+    }
+}
+
+/// The line under a note's text that says where notes are kept.
+struct UDSavedInAppNote: View {
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "info.circle")
+                .accessibilityHidden(true)
+            Text("Saved in UnifiedDay and your iCloud. Not visible in Apple's apps.")
+        }
+        .font(.caption)
+        .foregroundStyle(UD.textTertiary)
+        .textCase(nil)
+        .listRowInsets(UD.rowInsets)
+    }
+}
+
+/// Icon and title close together, for brand text rows.
+struct UDLinkLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 8) {
+            configuration.icon
+            configuration.title
+        }
+    }
+}
+
+/// A little empty space that stands in for a section heading, so a section with
+/// no label still sits apart from the one above it.
+struct UDFormGap: View {
+    var body: some View {
+        Color.clear
+            .frame(height: 8)
+            .listRowInsets(EdgeInsets())
     }
 }
 
