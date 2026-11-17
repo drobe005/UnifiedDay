@@ -31,6 +31,10 @@ struct TodayWidgetView: View {
     private var data: DayData { entry.data }
     private var next: WidgetItem? { data.upNext(at: entry.date) }
     private var rest: [WidgetItem] { data.remaining(at: entry.date, excluding: next) }
+    /// What's left today with events first, for the Lock Screen when nothing timed is coming up.
+    private var restEventsFirst: [WidgetItem] {
+        rest.filter { $0.kind == .event } + rest.filter { $0.kind == .reminder }
+    }
 
     var body: some View {
         Group {
@@ -178,6 +182,26 @@ struct TodayWidgetView: View {
                             .lineLimit(1)
                     }
                 }
+            } else if !rest.isEmpty {
+                // No timed event coming up, so show what's still open today:
+                // all-day events and reminders.
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("\(WidgetFormat.shortDay(entry.date)) · \(rest.count) left")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .widgetAccentable()
+                    ForEach(restEventsFirst.prefix(2)) { item in
+                        HStack(spacing: 4) {
+                            Image(systemName: item.kind == .event ? "calendar" : "circle")
+                                .font(.system(size: 10, weight: .semibold))
+                                .widgetAccentable()
+                            Text(item.title)
+                                .font(.system(size: 14, weight: .semibold))
+                                .lineLimit(1)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(WidgetFormat.shortDay(entry.date))
@@ -196,6 +220,9 @@ struct TodayWidgetView: View {
             if let next {
                 let time = next.start.map { $0.formatted(.dateTime.hour().minute()) } ?? ""
                 Text("\(WidgetFormat.shortDay(entry.date)) · \(next.title) \(time)")
+            } else if let first = restEventsFirst.first {
+                let more = rest.count > 1 ? " +\(rest.count - 1)" : ""
+                Text("\(WidgetFormat.shortDay(entry.date)) · \(first.title)\(more)")
             } else {
                 Text("\(WidgetFormat.shortDay(entry.date)) · Nothing else today")
             }
