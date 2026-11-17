@@ -102,30 +102,44 @@ final class EventKitService {
         return Self.sortItems(items)
     }
 
-    /// The start of every day in the range that has an event or an open reminder.
-    /// Multi-day events mark each day they touch. Used for the calendar dots.
-    func daysWithItems(
+    /// What the calendar dots show for one day: the colors of the calendars that have
+    /// events that day, in order, and whether an open reminder is due.
+    struct DayMarks: Equatable {
+        var eventColors: [Color] = []
+        var hasReminder = false
+        fileprivate var calendarIDs: [String] = []
+    }
+
+    /// The marks for every day in the range that has an event or an open reminder,
+    /// keyed by the start of the day. Multi-day events mark each day they touch.
+    /// Used for the calendar dots.
+    func dayMarks(
         from start: Date,
         to end: Date,
         events includeEvents: Bool = true,
         reminders includeReminders: Bool = true
-    ) async -> Set<Date> {
+    ) async -> [Date: DayMarks] {
         let calendar = Calendar.current
-        var days = Set<Date>()
+        var days: [Date: DayMarks] = [:]
         for event in includeEvents ? fetchEvents(start: start, end: end) : [] {
             guard let eventStart = event.startDate else { continue }
             // An event ending exactly at midnight does not touch the next day.
             let last = max(eventStart, (event.endDate ?? eventStart).addingTimeInterval(-1))
             var day = calendar.startOfDay(for: max(eventStart, start))
             while day <= last, day < end {
-                days.insert(day)
+                var marks = days[day, default: DayMarks()]
+                if !marks.calendarIDs.contains(event.sourceID) {
+                    marks.calendarIDs.append(event.sourceID)
+                    marks.eventColors.append(event.sourceColor)
+                }
+                days[day] = marks
                 guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
                 day = next
             }
         }
         for reminder in includeReminders ? await fetchRemindersDue(before: end) : [] {
             if let due = reminder.startDate, due >= start, due < end {
-                days.insert(calendar.startOfDay(for: due))
+                days[calendar.startOfDay(for: due), default: DayMarks()].hasReminder = true
             }
         }
         return days
@@ -923,6 +937,8 @@ struct UndoAction {
 
     let change: Change
     let item: TimelineItem
+    /// When the change happened, so a shake undoes the newest change across items and notes.
+    var date = Date.now
 
     var title: String {
         switch change {

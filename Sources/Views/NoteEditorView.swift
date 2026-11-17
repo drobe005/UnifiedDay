@@ -8,6 +8,7 @@ struct NoteEditorView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.composerButtonHiders) private var composerButtonHiders
+    @Environment(\.lastDeletedNote) private var lastDeletedNote
 
     let note: Note
 
@@ -142,6 +143,7 @@ struct NoteEditorView: View {
         .onDisappear {
             composerButtonHiders.wrappedValue = max(0, composerButtonHiders.wrappedValue - 1)
             if deleteOnClose {
+                lastDeletedNote.wrappedValue = DeletedNote(note)
                 modelContext.delete(note)
             }
             modelContext.saveNotes(reportingTo: eventKit)
