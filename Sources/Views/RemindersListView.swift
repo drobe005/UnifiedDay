@@ -158,7 +158,7 @@ struct RemindersListView: View {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let showEmpty = filter == .all && query.isEmpty
         // Reminders with an attached UnifiedDay note that matches, not just Apple notes.
-        let noteLinks = query.isEmpty ? [] : notes.filter { $0.matches(query) }.flatMap { $0.links ?? [] }
+        let noteLinks = query.isEmpty ? [] : notes.filter { $0.matches(query) }.flatMap(\.attachedLinks)
         return grouped.compactMap { group in
             let matches = group.items
                 .filter(filter.includes)

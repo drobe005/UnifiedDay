@@ -69,8 +69,9 @@ struct ComposerRequest: Identifiable {
 extension EnvironmentValues {
     /// Identifiers of items with attached notes, for the marker on timeline rows.
     @Entry var noteLinkKeys: Set<String> = []
-    /// Set by screens that have their own Save button, so the floating + steps aside.
-    @Entry var composerButtonHidden: Binding<Bool> = .constant(false)
+    /// How many open screens have their own Save button. While any do, the floating +
+    /// steps aside. A count, so opening one note from another can't show it too early.
+    @Entry var composerButtonHiders: Binding<Int> = .constant(0)
 }
 
 @main
@@ -98,7 +99,8 @@ struct RootView: View {
     @State private var composerRequest: ComposerRequest?
     @State private var selectedTab = AppTab.today
     @State private var calendarDay = Calendar.current.startOfDay(for: .now)
-    @State private var composerButtonHidden = false
+    @State private var composerButtonHiders = 0
+    private var composerButtonHidden: Bool { composerButtonHiders > 0 }
     @State private var showingUndo = false
     @State private var openedFirstTab = false
     @AppStorage(AppTab.orderKey) private var tabOrder = ""
@@ -107,7 +109,7 @@ struct RootView: View {
     @Query private var noteLinks: [NoteLink]
 
     private var noteLinkKeys: Set<String> {
-        Set(noteLinks.flatMap { [$0.externalID, $0.localID] }.filter { !$0.isEmpty })
+        Set(noteLinks.filter { !$0.isNoteLink }.flatMap { [$0.externalID, $0.localID] }.filter { !$0.isEmpty })
     }
 
     var body: some View {
@@ -127,7 +129,7 @@ struct RootView: View {
         .tint(UD.brand600)
         .environment(eventKit)
         .environment(\.noteLinkKeys, noteLinkKeys)
-        .environment(\.composerButtonHidden, $composerButtonHidden)
+        .environment(\.composerButtonHiders, $composerButtonHiders)
         .overlay(alignment: .bottomTrailing) {
             // Hidden on Settings: nothing to add there, and it covered the last rows.
             if !composerButtonHidden && selectedTab != .settings

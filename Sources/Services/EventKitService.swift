@@ -155,7 +155,8 @@ final class EventKitService {
             occurrenceDate: event.occurrenceDate,
             storeIdentifier: event.eventIdentifier ?? "",
             externalIdentifier: event.calendarItemExternalIdentifier ?? "",
-            repeatOption: Self.repeatOption(for: event)
+            repeatOption: Self.repeatOption(for: event),
+            isDetachedOccurrence: event.isDetached
         )
     }
 
