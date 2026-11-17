@@ -7,11 +7,13 @@ struct NoteEditorView: View {
     @Environment(EventKitService.self) private var eventKit
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.composerButtonHidden) private var composerButtonHidden
+    @Environment(\.composerButtonHiders) private var composerButtonHiders
 
     let note: Note
 
     @State private var showingItemPicker = false
+    @State private var showingNoteLinkPicker = false
+    @Query private var allNotes: [Note]
     @State private var viewingImage: NoteImage?
     /// Opened from an attached row. The sheet lives here because a sheet on a
     /// Form row often never appears.
@@ -58,6 +60,25 @@ struct NoteEditorView: View {
             }
             .udFormRow()
 
+            Section {
+                ForEach(linkedNotes) { other in
+                    NavigationLink {
+                        NoteEditorView(note: other)
+                    } label: {
+                        NoteRow(note: other)
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button("Unlink", role: .destructive) { unlink(other) }
+                    }
+                }
+                Button("Link a Note", systemImage: "link") {
+                    showingNoteLinkPicker = true
+                }
+            } header: {
+                UDFormHeader(title: "Linked notes")
+            }
+            .udFormRow()
+
             // In the footer, not a row, so the form's rounded row shape doesn't clip it.
             Section {
             } footer: {
@@ -89,7 +110,7 @@ struct NoteEditorView: View {
                 }
             }
         }
-        .onAppear { composerButtonHidden.wrappedValue = true }
+        .onAppear { composerButtonHiders.wrappedValue += 1 }
         .alert("Delete this note?", isPresented: $confirmingDelete) {
             Button("Delete", role: .destructive) {
                 deleteOnClose = true
@@ -105,6 +126,11 @@ struct NoteEditorView: View {
                 modelContext.saveNotes(reportingTo: eventKit)
             }
         }
+        .sheet(isPresented: $showingNoteLinkPicker) {
+            NotePickerView(title: "Link a Note", isExcluded: { $0 === note || note.isLinked(to: $0) }) { other, context in
+                note.attach(notes: [other], in: context)
+            }
+        }
         .sheet(item: $openingItem) { item in
             ItemDetailView(item: item) {}
         }
@@ -114,12 +140,25 @@ struct NoteEditorView: View {
             }
         }
         .onDisappear {
-            composerButtonHidden.wrappedValue = false
+            composerButtonHiders.wrappedValue = max(0, composerButtonHiders.wrappedValue - 1)
             if deleteOnClose {
                 modelContext.delete(note)
             }
             modelContext.saveNotes(reportingTo: eventKit)
         }
+    }
+
+    /// Notes linked to this one, from either side, newest edit first.
+    private var linkedNotes: [Note] {
+        allNotes.filter { $0 !== note && note.isLinked(to: $0) }
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    private func unlink(_ other: Note) {
+        for link in note.noteLinks(with: other) {
+            modelContext.delete(link)
+        }
+        modelContext.saveNotes(reportingTo: eventKit)
     }
 
     private var folderSelection: Binding<NoteFolder?> {
@@ -582,20 +621,36 @@ struct AttachedNotesSection: View {
     }
 }
 
-/// Picks an existing note to attach to an event or reminder.
+/// Picks an existing note to attach to an event or reminder, or to link from another note.
 struct NotePickerView: View {
     @Environment(EventKitService.self) private var eventKit
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \Note.updatedAt, order: .reverse) private var notes: [Note]
 
-    let item: TimelineItem
+    let title: String
+    /// True for notes that can't be picked, such as ones already attached.
+    let isExcluded: (Note) -> Bool
+    let onPick: (Note, ModelContext) -> Void
+
+    init(title: String, isExcluded: @escaping (Note) -> Bool, onPick: @escaping (Note, ModelContext) -> Void) {
+        self.title = title
+        self.isExcluded = isExcluded
+        self.onPick = onPick
+    }
+
+    /// Attaches the picked note to `item`.
+    init(item: TimelineItem) {
+        self.init(title: "Attach Note", isExcluded: { $0.isAttached(to: item) }) { note, context in
+            note.attach([item], in: context)
+        }
+    }
 
     @State private var searchText = ""
 
     private var available: [Note] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return notes.filter { !$0.isAttached(to: item) && (query.isEmpty || $0.matches(query)) }
+        return notes.filter { !isExcluded($0) && (query.isEmpty || $0.matches(query)) }
     }
 
     var body: some View {
@@ -630,7 +685,7 @@ struct NotePickerView: View {
                     }
                 }
             }
-            .navigationTitle("Attach Note")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, prompt: "Search notes")
             .toolbar {
@@ -642,7 +697,7 @@ struct NotePickerView: View {
     }
 
     private func attach(_ note: Note) {
-        note.attach([item], in: modelContext)
+        onPick(note, modelContext)
         modelContext.saveNotes(reportingTo: eventKit)
         dismiss()
     }

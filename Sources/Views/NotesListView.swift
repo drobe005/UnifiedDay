@@ -36,6 +36,9 @@ struct NotesListView: View {
     @State private var editingFolder: NoteFolder?
     @State private var isNamingFolder = false
     @State private var folderName = ""
+    /// The note or folder waiting on the delete box.
+    @State private var noteToDelete: Note?
+    @State private var folderToDelete: NoteFolder?
 
     private var currentFolder: NoteFolder? {
         folders.first { $0.uuid.uuidString == folderID }
@@ -64,8 +67,8 @@ struct NotesListView: View {
             .filter { note in
                 switch filter {
                 case .all: true
-                case .attached: !(note.links ?? []).isEmpty
-                case .unattached: (note.links ?? []).isEmpty
+                case .attached: note.hasItemLinks
+                case .unattached: !note.hasItemLinks
                 }
             }
             .filter { query.isEmpty || $0.matches(query) }
@@ -96,6 +99,21 @@ struct NotesListView: View {
                 Button("Save") { saveFolderName() }
             } message: {
                 Text("Deleting a folder later keeps its notes.")
+            }
+            .alert("Delete this note?", isPresented: isPresenting($noteToDelete), presenting: noteToDelete) { note in
+                Button("Delete", role: .destructive) { delete(note) }
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text("Events and reminders it's attached to won't change.")
+            }
+            .alert("Delete this folder?", isPresented: isPresenting($folderToDelete), presenting: folderToDelete) { folder in
+                Button("Delete", role: .destructive) {
+                    modelContext.delete(folder)
+                    modelContext.saveNotes(reportingTo: eventKit)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text("Its notes stay, under No Folder.")
             }
             .onChange(of: folders) {
                 // The folder being viewed was deleted, here or on another device.
@@ -156,10 +174,12 @@ struct NotesListView: View {
             ForEach(shown) { folder in
                 folderButton(folder.name, systemImage: "folder", count: folder.notes?.count ?? 0, id: folder.uuid.uuidString)
                     .swipeActions(edge: .trailing) {
-                        Button("Delete", systemImage: "trash", role: .destructive) {
-                            modelContext.delete(folder)
-                            modelContext.saveNotes(reportingTo: eventKit)
+                        // Not marked destructive: that role slides the row away
+                        // before the person answers.
+                        Button("Delete", systemImage: "trash") {
+                            folderToDelete = folder
                         }
+                        .tint(UD.errorFg)
                         Button("Rename", systemImage: "pencil") {
                             nameFolder(folder)
                         }
@@ -168,8 +188,7 @@ struct NotesListView: View {
                     .contextMenu {
                         Button("Rename", systemImage: "pencil") { nameFolder(folder) }
                         Button("Delete", systemImage: "trash", role: .destructive) {
-                            modelContext.delete(folder)
-                            modelContext.saveNotes(reportingTo: eventKit)
+                            folderToDelete = folder
                         }
                     }
             }
@@ -225,11 +244,13 @@ struct NotesListView: View {
             .tint(UD.orange500)
         }
         .swipeActions(edge: .trailing) {
-            Button(role: .destructive) {
-                delete(note)
+            // Not marked destructive: that role slides the row away before the person answers.
+            Button {
+                noteToDelete = note
             } label: {
                 Label("Delete", systemImage: "trash")
             }
+            .tint(UD.errorFg)
         }
         .contextMenu {
             Button(note.isPinned ? "Unpin" : "Pin", systemImage: note.isPinned ? "pin.slash" : "pin") {
@@ -245,9 +266,14 @@ struct NotesListView: View {
                 ShareLink(item: note.shareText)
             }
             Button("Delete", systemImage: "trash", role: .destructive) {
-                delete(note)
+                noteToDelete = note
             }
         }
+    }
+
+    /// Shows an alert while `value` is set, and clears it when the alert closes.
+    private func isPresenting<T>(_ value: Binding<T?>) -> Binding<Bool> {
+        Binding(get: { value.wrappedValue != nil }, set: { if !$0 { value.wrappedValue = nil } })
     }
 
     private func togglePin(_ note: Note) {
@@ -387,7 +413,7 @@ struct NoteRow: View {
                     Image(systemName: "photo")
                         .accessibilityLabel("Has images")
                 }
-                if !(note.links ?? []).isEmpty {
+                if note.hasItemLinks {
                     Image(systemName: "paperclip")
                         .accessibilityLabel("Attached to an event or reminder")
                 }

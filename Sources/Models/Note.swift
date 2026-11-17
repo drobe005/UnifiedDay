@@ -43,8 +43,41 @@ final class Note {
         (images ?? []).sorted { $0.createdAt < $1.createdAt }
     }
 
+    /// Links to events and reminders, sorted by title. Links to other notes are left out.
     var attachedLinks: [NoteLink] {
-        (links ?? []).sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        (links ?? []).filter { !$0.isNoteLink }
+            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    }
+
+    /// True when the note is attached to at least one event or reminder.
+    var hasItemLinks: Bool {
+        (links ?? []).contains { !$0.isNoteLink }
+    }
+
+    /// Names this note in links from other notes. Built from the creation time, which
+    /// already syncs, so linking notes needs no new iCloud field.
+    var linkID: String {
+        String(createdAt.timeIntervalSinceReferenceDate)
+    }
+
+    /// Links between this note and `other`, in either direction.
+    func noteLinks(with other: Note) -> [NoteLink] {
+        (links ?? []).filter { $0.isNoteLink && $0.externalID == other.linkID }
+            + (other.links ?? []).filter { $0.isNoteLink && $0.externalID == linkID }
+    }
+
+    func isLinked(to other: Note) -> Bool {
+        !noteLinks(with: other).isEmpty
+    }
+
+    /// Links other notes to this one. A link shows on both notes.
+    func attach(notes others: [Note], in context: ModelContext) {
+        for other in others where other !== self && !isLinked(to: other) {
+            let link = NoteLink(note: other)
+            context.insert(link)
+            link.note = self
+        }
+        updatedAt = .now
     }
 
     func attach(_ items: [TimelineItem], in context: ModelContext) {
@@ -135,12 +168,24 @@ final class NoteLink {
         title = item.title
     }
 
+    /// The `kindValue` of a link to another note. Its `externalID` is that note's `linkID`.
+    static let noteKindValue = "note"
+
+    /// Links one note to another.
+    init(note other: Note) {
+        kindValue = Self.noteKindValue
+        externalID = other.linkID
+        title = other.displayTitle
+    }
+
+    var isNoteLink: Bool { kindValue == Self.noteKindValue }
+
     var kind: TimelineItemKind {
         TimelineItemKind(rawValue: kindValue) ?? .event
     }
 
     func matches(_ item: TimelineItem) -> Bool {
-        guard kind == item.kind else { return false }
+        guard !isNoteLink, kind == item.kind else { return false }
         return (!externalID.isEmpty && externalID == item.externalIdentifier) || localID == item.storeIdentifier
     }
 }

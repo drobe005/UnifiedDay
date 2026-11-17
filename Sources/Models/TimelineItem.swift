@@ -60,9 +60,13 @@ struct TimelineItem: Identifiable, Hashable {
     /// When the item was made. Lets undated reminders sort newest first.
     var createdDate: Date?
 
+    /// One day of a repeating event that was edited on its own. Apple stores it as an
+    /// exception with no repeat rule, but it still belongs to the series.
+    var isDetachedOccurrence = false
+
     /// A repeating event, where deleting asks whether to remove later ones too.
     var isRepeatingEvent: Bool {
-        kind == .event && repeatOption != .never
+        kind == .event && (repeatOption != .never || isDetachedOccurrence)
     }
 
     var isOverdue: Bool {
