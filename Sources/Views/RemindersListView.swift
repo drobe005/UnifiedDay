@@ -33,6 +33,7 @@ struct RemindersListView: View {
     private struct Group {
         let id: String
         let name: String
+        var canDelete = false
         var items: [TimelineItem]
     }
 
@@ -43,6 +44,9 @@ struct RemindersListView: View {
     @State private var hasLoaded = false
     @State private var isNamingList = false
     @State private var newListName = ""
+    @State private var listToDelete: Group?
+    /// Lists folded shut, saved as comma-separated list identifiers.
+    @AppStorage("collapsedReminderLists") private var collapsedLists = ""
     @AppStorage("remindersSort") private var sort = Sort.dueDate
     @AppStorage("remindersFilter") private var filter = Filter.all
 
@@ -65,6 +69,16 @@ struct RemindersListView: View {
             } message: {
                 Text("The list is added to Apple Reminders too.")
             }
+            .alert(
+                "Delete \"\(listToDelete?.name ?? "")\"?",
+                isPresented: Binding(get: { listToDelete != nil }, set: { if !$0 { listToDelete = nil } }),
+                presenting: listToDelete
+            ) { group in
+                Button("Cancel", role: .cancel) {}
+                Button("Delete List", role: .destructive) { deleteList(group) }
+            } message: { _ in
+                Text("Every reminder in it is deleted too, including in Apple Reminders.")
+            }
             .task { await load() }
             .refreshable { await load() }
             .onChange(of: eventKit.changeCount) {
@@ -80,22 +94,24 @@ struct RemindersListView: View {
         List {
             ForEach(filtered, id: \.id) { group in
                 Section {
-                    if group.items.isEmpty {
-                        UDEmptyListRow(text: "No reminders")
-                    }
-                    ForEach(group.items) { item in
-                        TimelineRow(item: item, showsDay: true) {
-                            Task { await load() }
-                        } onRemove: { removed, target in
-                            // Rescheduled reminders stay in their list, so only a delete removes one.
-                            guard target == nil else { return }
-                            for index in grouped.indices {
-                                grouped[index].items.removeAll { $0.id == removed.id }
+                    if !isCollapsed(group) {
+                        if group.items.isEmpty {
+                            UDEmptyListRow(text: "No reminders")
+                        }
+                        ForEach(group.items) { item in
+                            TimelineRow(item: item, showsDay: true) {
+                                Task { await load() }
+                            } onRemove: { removed, target in
+                                // Rescheduled reminders stay in their list, so only a delete removes one.
+                                guard target == nil else { return }
+                                for index in grouped.indices {
+                                    grouped[index].items.removeAll { $0.id == removed.id }
+                                }
                             }
                         }
                     }
                 } header: {
-                    UDListHeader(title: group.name, count: group.items.count)
+                    header(for: group)
                 }
             }
         }
@@ -123,6 +139,74 @@ struct RemindersListView: View {
                     )
                 }
             }
+        }
+    }
+
+    /// Tap to fold a list open or shut. The menu holds Delete List.
+    private func header(for group: Group) -> some View {
+        let collapsed = isCollapsed(group)
+        return HStack(spacing: 4) {
+            Button {
+                withAnimation { toggle(group) }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(UD.textTertiary)
+                        .rotationEffect(.degrees(collapsed ? 0 : 90))
+                    UDListHeader(title: group.name, count: group.items.count)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isSearching)
+            .accessibilityLabel(group.name)
+            .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
+            .accessibilityHint(collapsed ? "Shows this list's reminders" : "Hides this list's reminders")
+
+            if group.canDelete {
+                Menu {
+                    Button("Delete List", systemImage: "trash", role: .destructive) {
+                        listToDelete = group
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(UD.textTertiary)
+                        .frame(width: 44, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("\(group.name) options")
+            }
+        }
+    }
+
+    private var isSearching: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var collapsedIDs: Set<String> {
+        Set(collapsedLists.split(separator: ",").map(String.init))
+    }
+
+    /// Search opens every list, so matches are never hidden.
+    private func isCollapsed(_ group: Group) -> Bool {
+        !isSearching && collapsedIDs.contains(group.id)
+    }
+
+    private func toggle(_ group: Group) {
+        var ids = collapsedIDs
+        if ids.contains(group.id) { ids.remove(group.id) } else { ids.insert(group.id) }
+        collapsedLists = ids.sorted().joined(separator: ",")
+    }
+
+    private func deleteList(_ group: Group) {
+        if eventKit.deleteReminderList(id: group.id) {
+            grouped.removeAll { $0.id == group.id }
+            var ids = collapsedIDs
+            ids.remove(group.id)
+            collapsedLists = ids.sorted().joined(separator: ",")
+            Task { await load() }
         }
     }
 
@@ -173,7 +257,9 @@ struct RemindersListView: View {
             case .created: matches.sorted { ($0.createdDate ?? .distantPast) > ($1.createdDate ?? .distantPast) }
             case .title: matches.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
             }
-            return sorted.isEmpty && !showEmpty ? nil : Group(id: group.id, name: group.name, items: sorted)
+            return sorted.isEmpty && !showEmpty
+                ? nil
+                : Group(id: group.id, name: group.name, canDelete: group.canDelete, items: sorted)
         }
     }
 
@@ -204,6 +290,7 @@ struct RemindersListView: View {
                 Group(
                     id: list.calendarIdentifier,
                     name: list.title,
+                    canDelete: eventKit.canDeleteReminderList(id: list.calendarIdentifier),
                     items: EventKitService.sortItems(byList[list.calendarIdentifier] ?? [])
                 )
             }

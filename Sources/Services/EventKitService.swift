@@ -382,6 +382,31 @@ final class EventKitService {
         }
     }
 
+    /// Whether a list can be deleted here. The default list for new reminders can't be,
+    /// since Apple needs one, and neither can read-only lists like shared ones.
+    func canDeleteReminderList(id: String) -> Bool {
+        guard let list = store.calendar(withIdentifier: id) else { return false }
+        return list.allowsContentModifications && !list.isImmutable
+            && list.calendarIdentifier != store.defaultCalendarForNewReminders()?.calendarIdentifier
+    }
+
+    /// Deletes an Apple Reminders list and every reminder in it. Returns false and
+    /// sets `lastError` on failure.
+    @discardableResult
+    func deleteReminderList(id: String) -> Bool {
+        guard let list = store.calendar(withIdentifier: id) else {
+            lastError = "That list is already gone."
+            return false
+        }
+        do {
+            try store.removeCalendar(list, commit: true)
+            return true
+        } catch {
+            lastError = "Couldn't delete the list. \(error.localizedDescription)"
+            return false
+        }
+    }
+
     /// Events and open reminders between two days, for the Calendar tab's week,
     /// month, and custom views. Overdue reminders only show on their own day.
     func fetchRange(from start: Date, to end: Date) async -> [TimelineItem] {
