@@ -1,11 +1,13 @@
 import SwiftUI
 
-// Shared building blocks for the UnifiedDay redesign. Each one mirrors a piece of
-// the Figma "Redesign (Untitled UI)" page so screens stay consistent.
+// Shared building blocks for UnifiedDay. They follow the minimal direction on the
+// Figma "Primary Screens" page: plain rows with hairlines, small gray labels, and
+// brand blue only for actions.
 
 // MARK: - Card
 
-/// White rounded container with a hairline border and a soft shadow.
+/// White rounded container from the earlier card design. Only the screens that
+/// have not moved to plain rows yet still use it.
 struct UDCard<Content: View>: View {
     @ViewBuilder var content: Content
 
@@ -17,49 +19,56 @@ struct UDCard<Content: View>: View {
                 RoundedRectangle(cornerRadius: UD.cardRadius, style: .continuous)
                     .strokeBorder(UD.borderSecondary)
             )
-            .shadow(color: .black.opacity(0.05), radius: 1, y: 1)
     }
 }
 
-/// Line between rows inside a card.
+/// Hairline between rows.
 struct UDDivider: View {
     var body: some View {
-        Rectangle().fill(UD.borderSecondary).frame(height: 1)
+        Rectangle().fill(UD.divider).frame(height: 1)
     }
 }
 
 // MARK: - Section
 
-/// Small header label with an optional count badge.
+/// Small gray label above a group of rows, like "Pinned" or "Due today · 1".
 struct UDSectionHeader: View {
     let title: String
     var count: Int?
+    /// A list or calendar color, shown as a small dot before the label.
+    var dotColor: Color?
+
+    private var label: String {
+        count.map { "\(title) · \($0)" } ?? title
+    }
 
     var body: some View {
-        HStack(spacing: 8) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(UD.textStrong)
-            if let count {
-                UDBadge(text: "\(count)")
+        HStack(spacing: 6) {
+            if let dotColor {
+                Circle()
+                    .fill(dotColor)
+                    .frame(width: 7, height: 7)
+                    .accessibilityHidden(true)
             }
+            Text(label)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(UD.textTertiary)
         }
         .accessibilityElement(children: .combine)
+        .accessibilityLabel(count.map { "\(title), \($0)" } ?? title)
         .accessibilityAddTraits(.isHeader)
     }
 }
 
-/// Section header for plain SwiftUI lists of cards (Today, Calendar, Reminders).
+/// Section header for plain SwiftUI lists (Today, Calendar, Reminders, Notes).
 struct UDListHeader: View {
     let title: String
     var count: Int?
+    var dotColor: Color?
 
     var body: some View {
-        UDSectionHeader(title: title, count: count)
-            .textCase(nil)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 8)
-            .padding(.bottom, 2)
+        UDSectionHeader(title: title, count: count, dotColor: dotColor)
+            .udListHeaderLayout()
     }
 }
 
@@ -68,6 +77,7 @@ struct UDListHeader: View {
 struct UDFoldableHeader: View {
     let title: String
     var count: Int?
+    var dotColor: Color?
     let isCollapsed: Bool
     var isDisabled = false
     var showHint = "Shows this section"
@@ -80,11 +90,13 @@ struct UDFoldableHeader: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
+                    .font(.caption2.weight(.semibold))
                     .foregroundStyle(UD.textTertiary)
                     .rotationEffect(.degrees(isCollapsed ? 0 : 90))
-                UDListHeader(title: title, count: count)
+                    .frame(width: 14)
+                UDSectionHeader(title: title, count: count, dotColor: dotColor)
             }
+            .udListHeaderLayout()
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -95,7 +107,18 @@ struct UDFoldableHeader: View {
     }
 }
 
-/// Placeholder row for an empty section in a list of cards, drawn as a dashed box.
+private extension View {
+    /// Spacing and margins shared by every list section heading.
+    func udListHeaderLayout() -> some View {
+        textCase(nil)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 10)
+            .padding(.bottom, 2)
+            .listRowInsets(UD.rowInsets)
+    }
+}
+
+/// Placeholder line for an empty section in a plain list.
 struct UDEmptyListRow: View {
     let text: String
 
@@ -104,36 +127,31 @@ struct UDEmptyListRow: View {
             .font(.subheadline)
             .foregroundStyle(UD.textTertiary)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .background(UD.bgSubtle, in: RoundedRectangle(cornerRadius: UD.cardRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: UD.cardRadius, style: .continuous)
-                    .strokeBorder(UD.borderPrimary, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-            )
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+            .padding(.vertical, 12)
+            .udPlainRow()
     }
 }
 
-/// Header, card and optional footer, like an inset grouped list section.
+/// Small gray label, plain rows with hairlines between them, and an optional footer.
 struct UDSection<Content: View>: View {
     var title: String?
     var footer: String?
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 0) {
             if let title {
                 UDSectionHeader(title: title)
+                    .padding(.top, 10)
+                    .padding(.bottom, 2)
             }
-            UDCard { content }
+            content
             if let footer {
                 Text(footer)
-                    .font(.footnote)
+                    .font(.caption)
                     .foregroundStyle(UD.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 10)
             }
         }
     }
@@ -141,7 +159,7 @@ struct UDSection<Content: View>: View {
 
 // MARK: - Row
 
-/// One line in a card: optional icon, title, optional subtitle, trailing content.
+/// One plain line: optional icon, title, optional subtitle, trailing content.
 struct UDRow<Trailing: View>: View {
     var icon: String?
     var title: String
@@ -160,7 +178,7 @@ struct UDRow<Trailing: View>: View {
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.body.weight(.medium))
+                    .font(.body)
                     .foregroundStyle(titleColor)
                 if let subtitle {
                     Text(subtitle)
@@ -176,7 +194,6 @@ struct UDRow<Trailing: View>: View {
                     .foregroundStyle(UD.textQuaternary)
             }
         }
-        .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .frame(minHeight: 52)
         .contentShape(Rectangle())
@@ -282,25 +299,30 @@ struct UDFeaturedIcon: View {
 
 // MARK: - Reminder check
 
-/// Round checkbox for reminders. Done uses the orange check from the app icon.
+/// Round checkbox for reminders: a thin gray ring, filled brand blue when done.
+/// Draws 26 points wide so it lines up with the event color bar, and takes taps
+/// on a 44 point square around it.
 struct ReminderCheck: View {
     let isCompleted: Bool
-    @ScaledMetric(relativeTo: .body) private var size: CGFloat = 22
+    @ScaledMetric(relativeTo: .body) private var size: CGFloat = 20
+
+    /// Width of the marker column at the start of a schedule row.
+    static let columnWidth: CGFloat = 26
 
     var body: some View {
         ZStack {
             if isCompleted {
-                Circle().fill(UD.orange500)
+                Circle().fill(UD.brand600)
                 Image(systemName: "checkmark")
                     .font(.system(size: size * 0.5, weight: .bold))
                     .foregroundStyle(.white)
             } else {
-                Circle().strokeBorder(UD.borderPrimary, lineWidth: 1.5)
+                Circle().strokeBorder(UD.textQuaternary, lineWidth: 1.5)
             }
         }
         .frame(width: size, height: size)
-        .frame(minWidth: 44, minHeight: 44)
-        .contentShape(Rectangle())
+        .frame(width: Self.columnWidth, height: Self.columnWidth, alignment: .leading)
+        .contentShape(Rectangle().inset(by: -9))
     }
 }
 
@@ -323,114 +345,63 @@ struct UDPrimaryButtonStyle: ButtonStyle {
             configuration.label
                 .font(.body.weight(.semibold))
                 .foregroundStyle(isEnabled ? Color.white : UD.textQuaternary)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 12)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 14)
                 .frame(maxWidth: fullWidth ? .infinity : nil)
                 .background(
                     isEnabled ? UD.brand600 : UD.bgSecondary,
-                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    in: RoundedRectangle(cornerRadius: UD.cardRadius, style: .continuous)
                 )
                 .opacity(configuration.isPressed ? 0.85 : 1)
-                .shadow(color: .black.opacity(isEnabled ? 0.08 : 0), radius: 1, y: 1)
         }
     }
 }
 
-/// Small outlined button label with an icon, used as a menu label for filters.
+/// Plain gray menu label with a small chevron, used for filters.
 struct FilterChip: View {
     let icon: String
     let text: String
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .foregroundStyle(UD.textTertiary)
+        HStack(spacing: 4) {
             Text(text)
-                .foregroundStyle(UD.textStrong)
                 .lineLimit(1)
             Image(systemName: "chevron.down")
                 .font(.caption2.weight(.semibold))
-                .foregroundStyle(UD.textQuaternary)
         }
-        .font(.subheadline.weight(.semibold))
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(UD.bgCard, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(UD.borderPrimary)
-        )
-        .shadow(color: .black.opacity(0.05), radius: 1, y: 1)
+        .font(.caption.weight(.medium))
+        .foregroundStyle(UD.textTertiary)
+        .frame(minHeight: 32)
+        .contentShape(Rectangle())
     }
 }
 
-/// Outlined neutral button.
-struct UDSecondaryButtonStyle: ButtonStyle {
-    var fullWidth = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.body.weight(.semibold))
-            .foregroundStyle(UD.textStrong)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
-            .frame(maxWidth: fullWidth ? .infinity : nil)
-            .background(
-                configuration.isPressed ? UD.bgSubtle : UD.bgCard,
-                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(UD.borderPrimary)
-            )
-    }
-}
-
-/// Full-width outlined red button, for Delete at the bottom of a screen.
+/// Plain red text line, for Delete at the bottom of a screen.
 struct UDDestructiveButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.body.weight(.semibold))
+            .font(.body.weight(.medium))
             .foregroundStyle(UD.errorFg)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity)
-            .background(
-                configuration.isPressed ? UD.errorBg : UD.bgCard,
-                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(UD.errorBorder)
-            )
+            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+            .contentShape(Rectangle())
+            .opacity(configuration.isPressed ? 0.6 : 1)
     }
 }
 
-/// Filled confirm button for a sheet's toolbar (Save, Done, Move).
-/// The label is set to white because the toolbar picks a dark label in dark mode.
+/// Confirm button for a sheet's toolbar (Save, Done, Move), as bold brand text.
 struct UDToolbarConfirmButton: View {
     var title = "Save"
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            ConfirmLabel(title: title)
+            Text(title).fontWeight(.semibold)
         }
-        .buttonStyle(.borderedProminent)
-    }
-
-    private struct ConfirmLabel: View {
-        let title: String
-        @Environment(\.isEnabled) private var isEnabled
-
-        var body: some View {
-            Text(title)
-                .foregroundStyle(isEnabled ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
-        }
+        .tint(UD.brand600)
     }
 }
 
-/// Tappable card row: soft highlight while pressed.
+/// Tappable row: soft highlight while pressed.
 struct UDRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -479,40 +450,88 @@ extension View {
             .background(UD.bgScreen)
     }
 
-    /// Soft gray background for Apple's grouped forms, so the brand cards stand out.
-    /// Pair with `udFormRow()` on each section.
+    /// Turns one of Apple's forms into plain rows on the screen background, with
+    /// hairlines between rows. Pair with `udFormRow()` on each section.
     func udFormBackground() -> some View {
-        scrollContentBackground(.hidden)
-            .background(UD.bgGrouped)
+        listStyle(.plain)
+            .listSectionSpacing(0)
+            .listRowSeparatorTint(UD.divider)
+            .listSectionSeparator(.hidden)
+            .environment(\.defaultMinListRowHeight, 52)
+            .scrollContentBackground(.hidden)
+            .background(UD.bgScreen)
     }
 
-    /// Card color for the rows of a grouped form section.
+    /// Plain look for the rows of a form section: no card behind them, the screen
+    /// margin on both sides, and hairlines that stop at the margin.
     func udFormRow() -> some View {
-        listRowBackground(UD.bgCard)
+        listRowBackground(Color.clear)
+            .listRowInsets(UD.rowInsets)
+            .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
+            .alignmentGuide(.listRowSeparatorTrailing) { $0[.trailing] }
+    }
+
+    /// A row that draws its own hairline (or none): no background, no list
+    /// separator, the screen margin on both sides.
+    func udPlainRow() -> some View {
+        listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+            .listRowInsets(UD.rowInsets)
     }
 }
 
 // MARK: - Form section labels
 
-/// Section header for Apple's grouped forms, in the brand text color.
+/// Small gray section label for forms.
 struct UDFormHeader: View {
     let title: String
 
     var body: some View {
-        Text(title)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(UD.textStrong)
-            .textCase(nil)
+        UDListHeader(title: title)
     }
 }
 
-/// Section footer for Apple's grouped forms.
+/// Small gray note under a form section.
 struct UDFormFooter: View {
     let text: String
 
     var body: some View {
         Text(text)
-            .font(.footnote)
+            .font(.caption)
             .foregroundStyle(UD.textTertiary)
+    }
+}
+
+// MARK: - Text tabs
+
+/// A row of text tabs with a line under the chosen one, like Week and Month.
+struct UDTextTabs<Value: Hashable>: View {
+    let options: [(value: Value, title: String)]
+    @Binding var selection: Value
+
+    var body: some View {
+        HStack(spacing: 20) {
+            ForEach(options, id: \.value) { option in
+                let isSelected = option.value == selection
+                Button {
+                    selection = option.value
+                } label: {
+                    Text(option.title)
+                        .font(.subheadline.weight(isSelected ? .semibold : .regular))
+                        .foregroundStyle(isSelected ? UD.textPrimary : UD.textTertiary)
+                        .padding(.vertical, 6)
+                        .overlay(alignment: .bottom) {
+                            Rectangle()
+                                .fill(isSelected ? UD.textPrimary : Color.clear)
+                                .frame(height: 2)
+                        }
+                        .frame(minHeight: 36)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+            }
+            Spacer(minLength: 0)
+        }
     }
 }

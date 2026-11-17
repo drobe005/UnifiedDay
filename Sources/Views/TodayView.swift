@@ -330,6 +330,10 @@ struct TimelineRow: View {
     let item: TimelineItem
     /// Shows the day next to the time, for lists that span more than today.
     var showsDay = false
+    /// Shows the calendar or list name under the title. Off where a heading already names it.
+    var showsSource = true
+    /// Draws the hairline under the row. Off for the last row of a group.
+    var showsDivider = true
     let onChange: () -> Void
     /// Called before a swipe changes the item: with nil for a delete, or with where a
     /// reschedule moves it. The list removes the row right away if it no longer belongs,
@@ -365,41 +369,33 @@ struct TimelineRow: View {
     }
 
     var body: some View {
-        UDCard {
-            // The checkbox's 44 pt tap area already adds room, so reminders need less spacing.
-            HStack(spacing: item.kind == .reminder ? 2 : 12) {
-                if item.kind == .reminder {
-                    Button {
-                        toggleCompleted()
-                    } label: {
-                        ReminderCheck(isCompleted: item.isCompleted)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(item.isReadOnly)
-                    .accessibilityLabel(item.isCompleted ? "Mark \(item.title) not done" : "Mark \(item.title) done")
-                } else {
-                    // The event's calendar color, as a stripe down the card's edge.
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(item.sourceColor)
-                        .frame(width: 4)
-                        .frame(maxHeight: .infinity)
-                        .accessibilityHidden(true)
+        // Marker at the far left, title and detail in the middle, time at the right.
+        HStack(alignment: .top, spacing: 12) {
+            marker
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title)
+                    .font(.body.weight(.medium))
+                    .strikethrough(item.isCompleted)
+                    .foregroundStyle(item.isCompleted ? UD.textTertiary : UD.textPrimary)
+                if showsSource || hasMarkers {
+                    detail
                 }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(item.title)
-                        .font(.body.weight(.semibold))
-                        .strikethrough(item.isCompleted)
-                        .foregroundStyle(item.isCompleted ? UD.textTertiary : UD.textPrimary)
-                    meta
+                // Large accessibility text needs the full width, so the time moves under.
+                if typeSize.isAccessibilitySize, let trailingLabel {
+                    timeText(trailingLabel)
                 }
-                Spacer(minLength: 0)
             }
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.vertical, 12)
-            // The checkbox has a 44 pt tap area, so reminders need less padding to line up.
-            .padding(.leading, item.kind == .event ? 12 : 4)
-            .padding(.trailing, 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if !typeSize.isAccessibilitySize, let trailingLabel {
+                timeText(trailingLabel)
+                    .padding(.top, showsSource ? 2 : 3)
+            }
+        }
+        // Lets the color bar grow to the height of the text beside it.
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.vertical, 12)
+        .overlay(alignment: .bottom) {
+            if showsDivider { UDDivider() }
         }
         .contentShape(Rectangle())
         .onTapGesture { showingDetail = true }
@@ -496,48 +492,65 @@ struct TimelineRow: View {
             }
             .presentationDetents([.medium, .large])
         }
-        // Every list that shows these rows gets the card look with no extra setup.
-        .listRowBackground(Color.clear)
-        .listRowSeparator(.hidden)
-        .listRowInsets(EdgeInsets(top: 4, leading: UD.screenPadding, bottom: 4, trailing: UD.screenPadding))
+        // Every list that shows these rows gets the plain look with no extra setup.
+        .udPlainRow()
     }
 
-    /// Time, list or calendar, and small markers, under the title.
-    private var meta: some View {
-        // Large accessibility text needs the full width, so stack instead of side by side.
-        let layout = typeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2))
-            : AnyLayout(HStackLayout(spacing: 6))
-        return layout {
-            if let trailingLabel {
-                HStack(spacing: 4) {
-                    Image(systemName: "clock")
-                        .accessibilityHidden(true)
-                    Text(trailingLabel)
-                        .monospacedDigit()
-                }
-                .foregroundStyle(item.isOverdue ? UD.errorFg : UD.textSecondary)
-                if !typeSize.isAccessibilitySize {
-                    Text("•")
-                        .foregroundStyle(UD.textQuaternary)
-                        .accessibilityHidden(true)
-                }
+    /// The event's calendar color as a thin bar, or the reminder's completion circle.
+    @ViewBuilder
+    private var marker: some View {
+        if item.kind == .reminder {
+            Button {
+                toggleCompleted()
+            } label: {
+                ReminderCheck(isCompleted: item.isCompleted)
             }
-            HStack(spacing: 4) {
+            .buttonStyle(.plain)
+            .disabled(item.isReadOnly)
+            .accessibilityLabel(item.isCompleted ? "Mark \(item.title) not done" : "Mark \(item.title) done")
+        } else {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(item.sourceColor)
+                .frame(width: 3)
+                .frame(maxHeight: .infinity)
+                .padding(.vertical, 2)
+                .frame(width: ReminderCheck.columnWidth, alignment: .leading)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var hasMarkers: Bool {
+        item.repeatOption != .never || hasNote
+    }
+
+    /// Calendar or list name and small markers, in gray under the title.
+    private var detail: some View {
+        HStack(spacing: 4) {
+            if showsSource {
                 Text(item.sourceName)
                     .lineLimit(1)
-                if item.repeatOption != .never {
-                    Image(systemName: "repeat")
-                        .accessibilityLabel("Repeats \(item.repeatOption.label.lowercased())")
-                }
-                if hasNote {
-                    Image(systemName: "note.text")
-                        .accessibilityLabel("Has a note")
-                }
             }
-            .foregroundStyle(UD.textSecondary)
+            if item.repeatOption != .never {
+                Image(systemName: "repeat")
+                    .accessibilityLabel("Repeats \(item.repeatOption.label.lowercased())")
+            }
+            if hasNote {
+                Image(systemName: "note.text")
+                    .accessibilityLabel("Has a note")
+            }
         }
         .font(.subheadline)
+        .imageScale(.small)
+        .foregroundStyle(UD.textTertiary)
+    }
+
+    /// Time at the right. Rows with no detail line use the larger size, like Reminders.
+    private func timeText(_ label: String) -> some View {
+        Text(label)
+            .font(showsSource ? .caption.weight(.medium) : .subheadline)
+            .monospacedDigit()
+            .foregroundStyle(item.isOverdue ? UD.errorFg : UD.textTertiary)
+            .lineLimit(1)
     }
 
     private func toggleCompleted() {

@@ -30,6 +30,8 @@ enum UD {
     // MARK: Borders
     static let borderPrimary = Color("BorderPrimary")
     static let borderSecondary = Color("BorderSecondary")
+    /// Hairline between rows. The lightest line in the app.
+    static let divider = Color("BgSecondary")
 
     // MARK: Backgrounds
     static let bgScreen = Color("BgScreen")
@@ -38,7 +40,7 @@ enum UD {
     static let bgSecondary = Color("BgSecondary")
     static let bgTertiary = Color("BgTertiary")
     static let bgQuaternary = Color("BgQuaternary")
-    /// Behind form cards (note editor, folders, sheets), so white cards stand out.
+    /// Soft gray screen background from the earlier card design. No longer used by the app.
     static let bgGrouped = Color("BgGrouped")
 
     // MARK: Status
@@ -53,9 +55,14 @@ enum UD {
     static let warningBorder = Color("WarningBorder")
 
     // MARK: Shape and spacing
+    /// Corner radius for the few boxed pieces left: buttons and the error banner.
     static let cardRadius: CGFloat = 12
+    /// Left and right margin of every screen. Figma uses 20, but 16 lines rows up
+    /// with Apple's large navigation title on most iPhones.
     static let screenPadding: CGFloat = 16
-    static let sectionSpacing: CGFloat = 24
+    static let sectionSpacing: CGFloat = 12
+    /// Row insets for plain lists: the screen margin on both sides, nothing above or below.
+    static let rowInsets = EdgeInsets(top: 0, leading: screenPadding, bottom: 0, trailing: screenPadding)
 
     /// Navigation bar and tab bar colors. Called once at launch.
     @MainActor

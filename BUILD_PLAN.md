@@ -155,3 +155,33 @@ count, since notes live in SwiftData and sharing them would need an App Group.
 
 Acceptance: widgets show real data on the iPhone, refresh after edits in the app
 or in Apple's apps, and the check circle completes the reminder.
+
+## Phase 9 - Minimal look (branch `minimal-ui`, started 2026-11-17, not yet merged)
+
+Restyle the app to the minimal direction adopted on 2026-11-17, shown on the Figma
+page "Primary Screens". Plain rows with hairline dividers instead of cards, no
+tinted pills, gray supporting text, brand blue only for actions and the selected
+day, calendar colors only as a thin bar and dots. A visual change only: nothing
+behaves differently. Builds on the tab rules and folding work (Calendar shows
+events only, Reminders shows reminders only, sections fold).
+
+Decisions: keep San Francisco and Apple's tab bar, navigation and sheets, so the
+large titles, toolbar buttons and tab bar are Apple's and not pixel copies of the
+Figma frames. Screen margin stays 16 (Figma uses 20) so rows line up with Apple's
+large title. The row hairline reuses the `BgSecondary` color as `UD.divider`. A
+done reminder fills brand blue, since orange is no longer used as a fill. No new
+colors, no new dependencies. Widgets and the `mac` branch are untouched.
+
+1. Shared pieces in `Sources/DesignSystem`: flat schedule row (`TimelineRow`),
+   flat rows and sections, small gray section labels with a chevron for folding,
+   text tabs, plain buttons, forms without cards.
+   (done 2026-11-17, checked in the Simulator in light and dark)
+2. Today, Calendar and Reminders: large titles, one gray summary line on Today,
+   text tabs for Week and Month, list color dots on Reminders headings.
+3. Notes: list, folders, editor.
+4. Composer sheets, item detail, Needs Attention, Settings, Tab Order, empty and
+   access-needed states, onboarding.
+
+Acceptance per step: builds, matches the Figma frame in light mode, reads well in
+dark mode, and nothing behaves differently. Run on a real iPhone before merging
+to `main`.
