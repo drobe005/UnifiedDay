@@ -56,6 +56,7 @@ struct TodayView: View {
                 UDOverlineToolbarItem(text: Date.now.formatted(
                     .dateTime.weekday(typeSize.isAccessibilitySize ? .abbreviated : .wide).month(.abbreviated).day()
                 ))
+                // Pull down to refresh; the header keeps only the bell, as in Figma.
                 if eventKit.accessGranted {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
@@ -63,16 +64,10 @@ struct TodayView: View {
                         } label: {
                             AttentionBell(count: attentionCount)
                         }
+                        .tint(UD.textPrimary)
                         .accessibilityLabel("Needs attention, \(attentionCount) \(attentionCount == 1 ? "item" : "items")")
                     }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Task { await load() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .accessibilityLabel("Refresh")
+                    .udPlain()
                 }
             }
             .task {
@@ -121,7 +116,7 @@ struct TodayView: View {
                 Section {
                     if !isCollapsed(section.title) {
                         ForEach(section.items) { item in
-                            TimelineRow(item: item, showsDivider: item.id != section.items.last?.id) {
+                            TimelineRow(item: item) {
                                 Task { await load() }
                             } onRemove: { removed, target in
                                 // Rescheduling to today keeps the row; the reload moves it.

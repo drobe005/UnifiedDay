@@ -27,9 +27,19 @@ enum AppTab: String, CaseIterable, Identifiable {
         switch self {
         case .today: "sun.max"
         case .calendar: "calendar"
-        case .reminders: "checklist"
+        case .reminders: "checkmark.rectangle.stack"
         case .notes: "doc.text"
         case .settings: "gearshape"
+        }
+    }
+
+    /// Outline icon, as in Figma. iOS fills tab icons unless the variant is cleared on the image.
+    var label: some View {
+        Label {
+            Text(title)
+        } icon: {
+            Image(systemName: systemImage)
+                .environment(\.symbolVariants, .none)
         }
     }
 
@@ -139,12 +149,16 @@ struct RootView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             ForEach(AppTab.order(from: tabOrder)) { tab in
-                Tab(tab.title, systemImage: tab.systemImage, value: tab) {
+                Tab(value: tab) {
                     screen(for: tab)
+                } label: {
+                    tab.label
                 }
             }
-            Tab(AppTab.settings.title, systemImage: AppTab.settings.systemImage, value: AppTab.settings) {
+            Tab(value: AppTab.settings) {
                 SettingsView()
+            } label: {
+                AppTab.settings.label
             }
         }
         // iOS keeps some old tab icons when tabs swap places, even with the Tab API.

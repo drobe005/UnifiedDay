@@ -149,7 +149,7 @@ struct CalendarView: View {
                 }
             } else {
                 ForEach(visible) { item in
-                    TimelineRow(item: item, showsDivider: item.id != visible.last?.id) {
+                    TimelineRow(item: item) {
                         Task { await loadDay() }
                     } onRemove: { removed, target in
                         if let target, calendar.isDate(target.day(), inSameDayAs: selectedDay) { return }
@@ -184,7 +184,7 @@ struct CalendarView: View {
             Section {
                 if !isCollapsed(group.day) {
                     ForEach(group.items) { item in
-                        TimelineRow(item: item, showsDivider: item.id != group.items.last?.id) {
+                        TimelineRow(item: item) {
                             Task { await loadRange() }
                         } onRemove: { removed, target in
                             if let target, let range, range.contains(target.day()) { return }
@@ -215,23 +215,10 @@ struct CalendarView: View {
             }
             .fontWeight(.semibold)
             .disabled(calendar.isDateInToday(selectedDay))
+            // Swipe the week or month to move; the arrows are gone, as in Figma.
+            .accessibilityHint("Swipe the calendar left or right to change the \(mode.rawValue.lowercased())")
         }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                shiftPeriod(by: -1)
-            } label: {
-                Image(systemName: "chevron.left")
-            }
-            .accessibilityLabel("Previous \(mode.rawValue.lowercased())")
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                shiftPeriod(by: 1)
-            } label: {
-                Image(systemName: "chevron.right")
-            }
-            .accessibilityLabel("Next \(mode.rawValue.lowercased())")
-        }
+        .udPlain()
     }
 
     private var swipeToChangePeriod: some Gesture {
@@ -260,8 +247,7 @@ struct CalendarView: View {
     }
 
     private func title(for day: Date) -> String {
-        if calendar.isDateInToday(day) { return "Today" }
-        if calendar.isDateInTomorrow(day) { return "Tomorrow" }
+        // Always the date, as in Figma, so the list matches the day picked above it.
         return day.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
     }
 

@@ -349,13 +349,17 @@ struct NotesListView: View {
                         ? "line.3.horizontal.decrease"
                         : "line.3.horizontal.decrease.circle.fill")
                 }
+                .tint(UD.textPrimary)
                 .accessibilityLabel("Sort and filter")
             }
+            .udPlain()
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Folders", systemImage: "folder") {
                     showsFolders = true
                 }
+                .tint(UD.textPrimary)
             }
+            .udPlain()
         }
     }
 }

@@ -223,13 +223,11 @@ struct RemindersListView: View {
                 UDOverlineToolbarItem(text: "\(openCount) open")
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button("New List", systemImage: "folder.badge.plus") {
-                    newListName = ""
-                    isNamingList = true
-                }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    Button("New List", systemImage: "folder.badge.plus") {
+                        newListName = ""
+                        isNamingList = true
+                    }
                     Picker("Sort by", selection: $sort) {
                         ForEach(Sort.allCases) { Text($0.rawValue).tag($0) }
                     }
@@ -241,8 +239,10 @@ struct RemindersListView: View {
                         ? "line.3.horizontal.decrease"
                         : "line.3.horizontal.decrease.circle.fill")
                 }
-                .accessibilityLabel("Sort and filter")
+                .tint(UD.textPrimary)
+                .accessibilityLabel("Lists, sort, and filter")
             }
+            .udPlain()
         }
     }
 

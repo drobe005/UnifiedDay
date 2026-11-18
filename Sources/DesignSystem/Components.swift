@@ -536,6 +536,19 @@ struct UDOverlineToolbarItem: ToolbarContent {
     }
 }
 
+extension ToolbarContent {
+    /// Draws a toolbar button as a plain icon, without iOS 26's shared glass capsule,
+    /// to match the flat header in Figma.
+    @ToolbarContentBuilder
+    func udPlain() -> some ToolbarContent {
+        if #available(iOS 26.0, *) {
+            sharedBackgroundVisibility(.hidden)
+        } else {
+            self
+        }
+    }
+}
+
 extension View {
     /// Shows search as a magnifying glass button until it is tapped, where iOS supports it.
     @ViewBuilder
