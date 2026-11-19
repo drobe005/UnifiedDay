@@ -1,10 +1,30 @@
 #if os(macOS)
 import SwiftUI
 
-/// Reminders on the Mac: one column per Apple Reminders list, side by side.
+/// Reminders on the Mac: one column per Apple Reminders list, side by side, or the
+/// same lists stacked as one list.
 struct MacRemindersView: View {
     typealias Sort = RemindersListView.Sort
     typealias Filter = RemindersListView.Filter
+
+    enum Layout: String, CaseIterable, Identifiable {
+        case columns, list
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .columns: "Columns"
+            case .list: "List"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .columns: "rectangle.split.3x1"
+            case .list: "list.bullet"
+            }
+        }
+    }
 
     @Environment(EventKitService.self) private var eventKit
     @State private var grouped: [RemindersListView.ListGroup] = []
@@ -14,6 +34,8 @@ struct MacRemindersView: View {
     // Same settings as the iPhone screen.
     @AppStorage("remindersSort") private var sort = Sort.dueDate
     @AppStorage("remindersFilter") private var filter = Filter.all
+    /// Mac only, remembered between launches.
+    @AppStorage("macRemindersLayout") private var layout = Layout.columns
 
     private var filtered: [RemindersListView.ListGroup] {
         RemindersListView.arrange(grouped, filter: filter, sort: sort, query: "", noteLinks: [])
@@ -23,6 +45,18 @@ struct MacRemindersView: View {
         VStack(spacing: 0) {
             MacScreenHeader(title: "Reminders") {
                 if eventKit.accessGranted {
+                    Picker("View as", selection: $layout) {
+                        ForEach(Layout.allCases) { option in
+                            Label(option.title, systemImage: option.systemImage)
+                                .labelStyle(.iconOnly)
+                                .help("View as \(option.title.lowercased())")
+                                .tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                    .accessibilityLabel("View as")
                     Button {
                         newListName = ""
                         isNamingList = true
@@ -85,6 +119,8 @@ struct MacRemindersView: View {
                 message: "Try another filter."
             )
             .frame(maxHeight: .infinity)
+        } else if layout == .list {
+            listView
         } else {
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: 16) {
@@ -98,15 +134,44 @@ struct MacRemindersView: View {
         }
     }
 
+    /// Every list stacked top to bottom, each with its header, like the iPhone.
+    private var listView: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 8) {
+                ForEach(filtered, id: \.id) { group in
+                    listHeader(group)
+                        .padding(.top, group.id == filtered.first?.id ? 0 : 16)
+                    if group.items.isEmpty {
+                        UDEmptyListRow(text: "No reminders")
+                    }
+                    ForEach(group.items) { item in
+                        TimelineRow(item: item, showsDay: true) {
+                            Task { await load() }
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: 760, alignment: .leading)
+            .padding(.horizontal, MacLayout.contentPadding)
+            .padding(.bottom, MacLayout.contentPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// The list's color, name and count.
+    private func listHeader(_ group: RemindersListView.ListGroup) -> some View {
+        HStack(spacing: 8) {
+            if let color = group.items.first?.sourceColor {
+                Circle().fill(color).frame(width: 10, height: 10)
+            }
+            UDSectionHeader(title: group.name, count: group.items.count)
+            Spacer(minLength: 0)
+        }
+    }
+
     private func column(_ group: RemindersListView.ListGroup) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                if let color = group.items.first?.sourceColor {
-                    Circle().fill(color).frame(width: 10, height: 10)
-                }
-                UDSectionHeader(title: group.name, count: group.items.count)
-                Spacer(minLength: 0)
-            }
+            listHeader(group)
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
 
