@@ -387,6 +387,8 @@ struct TimelineRow: View {
         }
         // Lets the color bar grow to the height of the text beside it.
         .fixedSize(horizontal: false, vertical: true)
+        // 12 on the left lines the marker up under the section header text, as in Figma.
+        .padding(.leading, 12)
         .padding(.vertical, 12)
         .overlay(alignment: .bottom) {
             if showsDivider { UDDivider() }
