@@ -8,8 +8,11 @@ struct SettingsView: View {
     @AppStorage(EventKitService.defaultCalendarKey) private var defaultCalendarID = ""
     @AppStorage(EventKitService.defaultListKey) private var defaultListID = ""
     @AppStorage(EventKitService.alertsEnabledKey) private var alertsEnabled = false
+    @AppStorage(EventKitService.eventAlertsKey) private var eventAlerts = true
+    @AppStorage(EventKitService.taskAlertsKey) private var taskAlerts = true
     @AppStorage(EventKitService.alertLeadMinutesKey) private var alertLeadMinutes = EventKitService.defaultAlertLeadMinutes
 
+    @AppStorage(AppAppearance.key) private var appearance = AppAppearance.system
     @State private var bannersOn: Bool?
     @State private var showingFeedbackAddress = false
 
@@ -38,6 +41,14 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var sections: some View {
+                UDSection(title: "Appearance") {
+                    menuRow("Theme", value: appearance.label) {
+                        Picker("Theme", selection: $appearance) {
+                            ForEach(AppAppearance.allCases) { Text($0.label).tag($0) }
+                        }
+                    }
+                }
+
                 UDSection(title: "Access") {
                     UDRow(title: "Calendar and Reminders") {
                         UDValue(text: eventKit.accessGranted ? "Granted" : "Not granted")
@@ -64,8 +75,8 @@ struct SettingsView: View {
                             }
                         }
                         UDDivider()
-                        menuRow("Reminders list", value: listName) {
-                            Picker("Reminders list", selection: $defaultListID) {
+                        menuRow("Task list", value: listName) {
+                            Picker("Task list", selection: $defaultListID) {
                                 Text("Apple default").tag("")
                                 ForEach(eventKit.writableReminderLists(), id: \.calendarIdentifier) { list in
                                     Text(list.title).tag(list.calendarIdentifier)
@@ -76,18 +87,24 @@ struct SettingsView: View {
 
                     UDSection(
                         title: "Alerts",
-                        footer: "Covers timed events and reminders. Reminders with no time alert at 9 AM. Changes apply when you open the app."
+                        footer: "Choose what alerts you. Tasks with no time alert at 9 AM. All-day events don't alert. Changes apply when you open the app."
                     ) {
                         toggleRow("Alerts", isOn: $alertsEnabled)
                         if alertsEnabled {
                             UDDivider()
-                            menuRow("Event alert", value: alertLeadLabel(alertLeadMinutes)) {
-                                Picker("Event alert", selection: $alertLeadMinutes) {
-                                    ForEach(alertLeadOptions, id: \.self) { minutes in
-                                        Text(alertLeadLabel(minutes)).tag(minutes)
+                            toggleRow("Events", isOn: $eventAlerts)
+                            if eventAlerts {
+                                UDDivider()
+                                menuRow("Event alert", value: alertLeadLabel(alertLeadMinutes)) {
+                                    Picker("Event alert", selection: $alertLeadMinutes) {
+                                        ForEach(alertLeadOptions, id: \.self) { minutes in
+                                            Text(alertLeadLabel(minutes)).tag(minutes)
+                                        }
                                     }
                                 }
                             }
+                            UDDivider()
+                            toggleRow("Tasks", isOn: $taskAlerts)
                         }
                         // Stays visible with Alerts off, since iOS Settings may be the fix.
                         if let bannersOn {
@@ -118,10 +135,16 @@ struct SettingsView: View {
                     .onChange(of: alertLeadMinutes) {
                         Task { await eventKit.refreshAlerts() }
                     }
+                    .onChange(of: eventAlerts) {
+                        Task { await eventKit.refreshAlerts() }
+                    }
+                    .onChange(of: taskAlerts) {
+                        Task { await eventKit.refreshAlerts() }
+                    }
 
                     UDSection(
                         title: "Badge",
-                        footer: "Shows reminders due today plus overdue. Updates when you open the app."
+                        footer: "Shows tasks due today plus overdue. Updates when you open the app."
                     ) {
                         toggleRow("App icon badge", isOn: $badgeEnabled)
                     }
@@ -140,6 +163,22 @@ struct SettingsView: View {
                         TabOrderView()
                     } label: {
                         UDRow(title: "Tab Order", showsChevron: true)
+                    }
+                    .buttonStyle(UDRowButtonStyle())
+                }
+
+                UDSection(title: "Help") {
+                    NavigationLink {
+                        ScrollView {
+                            SymbolKeyView()
+                                .padding(.horizontal, UD.screenPadding)
+                                .padding(.vertical, 16)
+                        }
+                        .udScreenBackground()
+                        .navigationTitle("How to Read Your Day")
+                        .navigationBarTitleDisplayMode(.inline)
+                    } label: {
+                        UDRow(title: "How to Read Your Day", showsChevron: true)
                     }
                     .buttonStyle(UDRowButtonStyle())
                 }

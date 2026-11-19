@@ -79,7 +79,7 @@ struct WidgetHeader: View {
                         .overlay(Circle().strokeBorder(WC.brand200))
                         .widgetAccentable()
                 }
-                .accessibilityLabel("Add event or reminder")
+                .accessibilityLabel("Add event or task")
             }
         }
     }

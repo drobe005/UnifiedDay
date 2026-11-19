@@ -17,7 +17,7 @@ enum AppTab: String, CaseIterable, Identifiable {
         switch self {
         case .today: "Today"
         case .calendar: "Calendar"
-        case .reminders: "Reminders"
+        case .reminders: "Tasks"
         case .notes: "Notes"
         case .settings: "Settings"
         }
@@ -104,6 +104,31 @@ enum PendingUndo {
         case .note(let note): note.displayTitle
         }
     }
+
+    /// The short line in the bar at the bottom, like "Task completed".
+    var barMessage: String {
+        switch self {
+        case .note:
+            return "Note deleted"
+        case .item(let action):
+            let noun = action.item.kind == .event ? "Event" : "Task"
+            switch action.change {
+            case .completion(let done): return done ? "Task completed" : "Marked not done"
+            case .delete: return "\(noun) deleted"
+            case .reschedule: return "\(noun) moved"
+            case .skip:
+                guard let next = action.item.nextOccurrenceDate else { return "Task deleted" }
+                return "Deleted. Next one is \(next.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))"
+            }
+        }
+    }
+
+    var date: Date {
+        switch self {
+        case .item(let action): action.date
+        case .note(let note): note.date
+        }
+    }
 }
 
 @main
@@ -124,8 +149,32 @@ struct UnifiedDayApp: App {
     }
 }
 
+/// Light, dark, or follow the iPhone's setting. Picked in Settings.
+enum AppAppearance: String, CaseIterable, Identifiable {
+    case system, light, dark
+    static let key = "appearance"
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .system: "System"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+}
+
 struct RootView: View {
     let storageError: String?
+    @AppStorage(AppAppearance.key) private var appearance = AppAppearance.system
 
     @State private var eventKit = EventKitService()
     @State private var composerRequest: ComposerRequest?
@@ -136,6 +185,8 @@ struct RootView: View {
     @State private var showingUndo = false
     @State private var pendingUndo: PendingUndo?
     @State private var lastDeletedNote: DeletedNote?
+    /// The change shown in the bar at the bottom, with Undo. Hides on its own.
+    @State private var undoBar: PendingUndo?
     @State private var openedFirstTab = false
     @AppStorage(AppTab.orderKey) private var tabOrder = ""
     @Environment(\.scenePhase) private var scenePhase
@@ -165,6 +216,7 @@ struct RootView: View {
         // A new identity per order rebuilds the tab bar so every icon matches its title.
         .id(tabOrder)
         .tint(UD.brand600)
+        .preferredColorScheme(appearance.colorScheme)
         .environment(eventKit)
         .environment(\.noteLinkKeys, noteLinkKeys)
         .environment(\.composerButtonHiders, $composerButtonHiders)
@@ -188,7 +240,7 @@ struct RootView: View {
                 .padding(.trailing)
                 // Sits above the tab bar so the two never overlap.
                 .padding(.bottom, 64)
-                .accessibilityLabel("Add event, reminder, or note")
+                .accessibilityLabel("Add event, task, or note")
             }
         }
         .overlay(alignment: .top) {
@@ -215,6 +267,34 @@ struct RootView: View {
             if !openedFirstTab {
                 openedFirstTab = true
                 selectedTab = AppTab.order(from: tabOrder).first ?? .today
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let pending = undoBar {
+                UDUndoBar(message: pending.barMessage) {
+                    undoBar = nil
+                    undo(pending)
+                }
+                // Sits above the + button and the tab bar.
+                .padding(.bottom, 132)
+                .padding(.horizontal, UD.screenPadding)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .id(pending.date)
+            }
+        }
+        .animation(.snappy, value: undoBar?.date)
+        .onChange(of: eventKit.lastUndo?.date) { _, date in
+            if date != nil, let action = eventKit.lastUndo {
+                showUndoBar(.item(action))
+            } else if case .item = undoBar {
+                undoBar = nil
+            }
+        }
+        .onChange(of: lastDeletedNote?.date) { _, date in
+            if date != nil, let note = lastDeletedNote {
+                showUndoBar(.note(note))
+            } else if case .note = undoBar {
+                undoBar = nil
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .deviceDidShake)) { _ in
@@ -286,6 +366,15 @@ struct RootView: View {
             }
         default:
             selectedTab = .today
+        }
+    }
+
+    /// Shows the bar for a few seconds. A newer change replaces it.
+    private func showUndoBar(_ pending: PendingUndo) {
+        undoBar = pending
+        Task {
+            try? await Task.sleep(for: .seconds(4))
+            if undoBar?.date == pending.date { undoBar = nil }
         }
     }
 

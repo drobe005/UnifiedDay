@@ -13,6 +13,8 @@ struct NoteEditorView: View {
     let note: Note
 
     @State private var showingItemPicker = false
+    /// Making an event or task from this note.
+    @State private var creatingForNote: ComposerView.DraftKind?
     @State private var showingNoteLinkPicker = false
     @Query private var allNotes: [Note]
     @State private var viewingImage: NoteImage?
@@ -55,7 +57,15 @@ struct NoteEditorView: View {
                 ForEach(note.attachedLinks) { link in
                     AttachedItemRow(link: link) { openingItem = $0 }
                 }
-                Button("Attach Events or Reminders", systemImage: "plus") {
+                Button("New Event for This Note", systemImage: "calendar.badge.plus") {
+                    creatingForNote = .event
+                }
+                .udLinkRow()
+                Button("New Task for This Note", systemImage: "checkmark.circle.badge.plus") {
+                    creatingForNote = .reminder
+                }
+                .udLinkRow()
+                Button("Attach Existing Events or Tasks", systemImage: "plus") {
                     showingItemPicker = true
                 }
                 .udLinkRow()
@@ -126,7 +136,14 @@ struct NoteEditorView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Events and reminders it's attached to won't change.")
+            Text("Events and tasks it's attached to won't change.")
+        }
+        .sheet(item: $creatingForNote) { kind in
+            ComposerView(initialKind: kind, initialTitle: note.title) { item in
+                note.attach([item], in: modelContext)
+                modelContext.saveNotes(reportingTo: eventKit)
+            }
+            .environment(eventKit)
         }
         .sheet(isPresented: $showingItemPicker) {
             ItemPickerView(isAttached: note.isAttached(to:)) { items in
@@ -194,14 +211,21 @@ struct NoteEditorView: View {
 @available(iOS 26.0, *)
 struct RichNoteEditor: View {
     let note: Note
+    /// The empty box's height. The box grows past it as you write.
+    var minHeight: CGFloat = 320
 
     @State private var text: AttributedString
     @State private var selection = AttributedTextSelection()
+    /// The text when the cursor last moved, to tell a tap apart from typing.
+    @State private var textAtLastSelection: String
     @FocusState private var isFocused: Bool
 
-    init(note: Note) {
+    init(note: Note, minHeight: CGFloat = 320) {
         self.note = note
-        _text = State(initialValue: RichText.decode(note.richText, plainText: note.text))
+        self.minHeight = minHeight
+        let decoded = Self.normalized(RichText.decode(note.richText, plainText: note.text))
+        _text = State(initialValue: decoded)
+        _textAtLastSelection = State(initialValue: String(decoded.characters))
     }
 
     private var current: RichTextStyle {
@@ -221,7 +245,7 @@ struct RichNoteEditor: View {
             .focused($isFocused)
             .foregroundStyle(UD.textSecondary)
             .scrollContentBackground(.hidden)
-            .frame(minHeight: 200)
+            .frame(minHeight: minHeight, alignment: .top)
             .overlay(alignment: .topLeading) {
                 if text.characters.isEmpty {
                     Text("Write something")
@@ -256,16 +280,99 @@ struct RichNoteEditor: View {
             }
             .onChange(of: text) { old, new in
                 if new.characters.count == old.characters.count + 1 {
-                    continueList()
+                    // Wait until the editor finishes its own edit. Changing the
+                    // text in the middle of it crashes the text system.
+                    Task { @MainActor in continueList() }
                 }
                 save()
             }
+            .onChange(of: selection) {
+                toggleTappedCheckbox()
+            }
     }
 
-    private static let bullet = "• "
-    private static let openBox = "☐ "
-    private static let checkedBox = "☑ "
-    private static let listPrefixes = [bullet, openBox, checkedBox]
+    // A tab after each marker lines up the text that follows, whatever the marker's width.
+    private static let bullet = "•\t"
+    private static let openBox = "☐\t"
+    private static let checkedBox = "☑\t"
+    /// Older notes put a space after the marker. They're read the same way and switch to a tab.
+    private static let oldPrefixes = ["• ", "☐ ", "☑ "]
+    private static let listPrefixes = [bullet, openBox, checkedBox] + oldPrefixes
+    private static let boxes: Set<Character> = ["☐", "☑"]
+    /// Checkboxes draw larger than the text, so they're easy to see and tap.
+    private static let boxFont = Font.system(size: 22)
+
+    /// Tapping a checkbox puts the cursor next to it without changing the text. When
+    /// that happens, check or uncheck it, as in Apple Notes.
+    private func toggleTappedCheckbox() {
+        let plain = String(text.characters)
+        defer { textAtLastSelection = plain }
+        guard plain == textAtLastSelection,
+              case .insertionPoint(let point) = selection.indices(in: text) else { return }
+        let start = Self.lineStart(in: text, at: point)
+        guard start < text.endIndex, Self.boxes.contains(text.characters[start]) else { return }
+        let offset = text.characters.distance(from: start, to: point)
+        guard offset <= 1 else { return }
+        changeLinePrefix { $0.map(Self.normalizedPrefix) == Self.openBox ? Self.checkedBox : Self.openBox }
+    }
+
+    private static func normalizedPrefix(_ prefix: String) -> String {
+        switch prefix {
+        case "• ": bullet
+        case "☐ ": openBox
+        case "☑ ": checkedBox
+        default: prefix
+        }
+    }
+
+    /// Character offsets where each line starts.
+    private static func lineStartOffsets(_ characters: [Character]) -> [Int] {
+        var starts = [0]
+        for (offset, character) in characters.enumerated() where character == "\n" {
+            starts.append(offset + 1)
+        }
+        return starts
+    }
+
+    /// Switches older space-after markers to tabs and styles the checkboxes.
+    static func normalized(_ text: AttributedString) -> AttributedString {
+        var text = text
+        let characters = Array(text.characters)
+        for start in lineStartOffsets(characters).reversed()
+        where start + 1 < characters.count && "•☐☑".contains(characters[start]) && characters[start + 1] == " " {
+            let index = text.characters.index(text.startIndex, offsetBy: start + 1)
+            text.replaceSubrange(index..<text.characters.index(after: index),
+                                 with: AttributedString("\t", attributes: RichTextStyle().attributes))
+        }
+        styleMarkers(&text)
+        return text
+    }
+
+    /// A list marker ready to insert, with the checkbox already at its larger size.
+    private static func markerText(_ prefix: String) -> AttributedString {
+        var marker = AttributedString(prefix, attributes: RichTextStyle().attributes)
+        styleMarkers(&marker)
+        return marker
+    }
+
+    /// Gives each checkbox its larger size and color: gray when open, blue when checked.
+    /// Only for display; saved notes keep plain text, so this runs again on open.
+    @discardableResult
+    private static func styleMarkers(_ text: inout AttributedString) -> Bool {
+        var changed = false
+        let characters = Array(text.characters)
+        for start in lineStartOffsets(characters) where start < characters.count && boxes.contains(characters[start]) {
+            let index = text.characters.index(text.startIndex, offsetBy: start)
+            let range = index..<text.characters.index(after: index)
+            let color = characters[start] == "☑" ? UD.brand600 : UD.textTertiary
+            if text[range].font != boxFont || text[range].foregroundColor != color {
+                text[range].font = boxFont
+                text[range].foregroundColor = color
+                changed = true
+            }
+        }
+        return changed
+    }
 
     /// After Return on a bullet or checklist line, starts the next line the same way,
     /// with an unchecked box for checklists. Return on an empty one removes it and
@@ -285,9 +392,9 @@ struct RichNoteEditor: View {
             text.removeSubrange(start..<point)
             placeCursor(atOffset: startOffset)
         } else {
-            let next = prefix == Self.bullet ? Self.bullet : Self.openBox
+            let next = Self.normalizedPrefix(prefix) == Self.bullet ? Self.bullet : Self.openBox
             let pointOffset = text.characters.distance(from: text.startIndex, to: point)
-            text.insert(AttributedString(next, attributes: RichTextStyle().attributes), at: point)
+            text.insert(Self.markerText(next), at: point)
             placeCursor(atOffset: pointOffset + next.count)
         }
     }
@@ -335,7 +442,7 @@ struct RichNoteEditor: View {
                 text.removeSubrange(start..<end)
             }
             if let replacement {
-                text.insert(AttributedString(replacement, attributes: RichTextStyle().attributes), at: start)
+                text.insert(Self.markerText(replacement), at: start)
             }
         }
 
@@ -377,12 +484,12 @@ struct RichNoteEditor: View {
     /// Adds or removes a bullet at the start of the cursor's line. A checklist line
     /// turns into a bullet.
     private func toggleBullet() {
-        changeLinePrefix { $0 == Self.bullet ? nil : Self.bullet }
+        changeLinePrefix { $0.map(Self.normalizedPrefix) == Self.bullet ? nil : Self.bullet }
     }
 
     /// Adds a checkbox to the cursor's line, or checks and unchecks the one there.
     private func toggleChecklist() {
-        changeLinePrefix { $0 == Self.openBox ? Self.checkedBox : Self.openBox }
+        changeLinePrefix { $0.map(Self.normalizedPrefix) == Self.openBox ? Self.checkedBox : Self.openBox }
     }
 
     private func save() {
@@ -464,7 +571,7 @@ struct AttachedItemRow: View {
 struct ItemPickerView: View {
     private enum Tab: String, CaseIterable, Identifiable {
         case events = "Events"
-        case reminders = "Reminders"
+        case reminders = "Tasks"
         var id: String { rawValue }
     }
 
@@ -510,12 +617,12 @@ struct ItemPickerView: View {
                 if !eventKit.accessGranted {
                     UDEmptyState(
                         title: "Calendar access needed",
-                        message: "Allow access to attach events and reminders."
+                        message: "Allow access to attach events and tasks."
                     )
                 } else if hasLoaded && visibleItems.isEmpty {
                     if trimmedSearch.isEmpty {
                         UDEmptyState(
-                            title: tab == .events ? "No upcoming events" : "No open reminders",
+                            title: tab == .events ? "No upcoming events" : "No open tasks",
                             message: "Nothing to attach here in the next 30 days."
                         )
                     } else {

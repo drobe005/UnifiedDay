@@ -74,7 +74,7 @@ struct ItemDetailView: View {
 
                 if !item.isReadOnly {
                     Section {
-                        Button("Delete \(isEvent ? "Event" : "Reminder")", role: .destructive) {
+                        Button("Delete \(isEvent ? "Event" : "Task")", role: .destructive) {
                             confirmingDelete = true
                         }
                         .buttonStyle(UDDestructiveButtonStyle())
@@ -86,7 +86,7 @@ struct ItemDetailView: View {
                 }
             }
             .udFormBackground()
-            .navigationTitle(isEvent ? "Event" : "Reminder")
+            .navigationTitle(isEvent ? "Event" : "Task")
             .navigationBarTitleDisplayMode(.inline)
             // The small label above the title says what this is, so the bar shows only the buttons.
             .toolbar(removing: .title)
@@ -108,19 +108,24 @@ struct ItemDetailView: View {
                 Text("Changes will also show in Apple Calendar.")
             }
             .alert(
-                "Delete this \(isEvent ? "event" : "reminder")?",
+                "Delete this \(isEvent ? "event" : "task")?",
                 isPresented: $confirmingDelete
             ) {
                 if item.isRepeatingEvent {
                     Button("Delete This Event Only", role: .destructive) { delete() }
                     Button("Delete All Future Events", role: .destructive) { delete(includingFuture: true) }
+                } else if item.isRepeatingReminder {
+                    if item.nextOccurrenceDate != nil {
+                        Button("Delete This Task Only", role: .destructive) { skip() }
+                    }
+                    Button("Delete All Future Tasks", role: .destructive) { delete() }
                 } else {
                     Button("Delete", role: .destructive) { delete() }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                if item.isRepeatingEvent {
-                    Text("This is a repeating event. It will also be removed from Apple Calendar.")
+                if item.isRepeatingEvent || item.isRepeatingReminder {
+                    Text(RepeatDeleteCopy.message(for: item))
                 } else {
                     Text(isEvent ? "It will also be removed from Apple Calendar." : "It will also be removed from Apple Reminders.")
                 }
@@ -138,7 +143,7 @@ struct ItemDetailView: View {
                 .foregroundStyle(UD.textPrimary)
                 .padding(.vertical, 6)
         } header: {
-            UDFormHeader(title: isEvent ? "Event" : "Reminder")
+            UDFormHeader(title: isEvent ? "Event" : "Task")
         }
         .udFormRow()
 
@@ -147,7 +152,7 @@ struct ItemDetailView: View {
                 Toggle("All day", isOn: $isAllDay)
                 DatePicker("Starts", selection: $start, displayedComponents: isAllDay ? [.date] : [.date, .hourAndMinute])
                 DatePicker("Ends", selection: $end, in: start..., displayedComponents: isAllDay ? [.date] : [.date, .hourAndMinute])
-                RepeatPicker(selection: $repeatOption)
+                RepeatPicker(selection: $repeatOption, customLabel: item.customRepeatLabel)
                 sourceRow
             } footer: {
                 if repeatOption != item.repeatOption && item.repeatOption != .never {
@@ -167,7 +172,7 @@ struct ItemDetailView: View {
                 if hasDueDate {
                     DatePicker("Due", selection: $start, displayedComponents: includeTime ? [.date, .hourAndMinute] : [.date])
                     Toggle("Include time", isOn: $includeTime)
-                    RepeatPicker(selection: $repeatOption)
+                    RepeatPicker(selection: $repeatOption, customLabel: item.customRepeatLabel)
                 }
                 sourceRow
             }
@@ -197,11 +202,11 @@ struct ItemDetailView: View {
                 LabeledContent(isEvent ? "When" : "Due", value: when)
             }
             if item.repeatOption != .never {
-                LabeledContent("Repeat", value: item.repeatOption.label)
+                LabeledContent("Repeat", value: item.repeatLabel)
             }
             sourceRow
         } header: {
-            UDFormHeader(title: isEvent ? "Event" : "Reminder")
+            UDFormHeader(title: isEvent ? "Event" : "Task")
         } footer: {
             UDFormFooter(text: "This \(isEvent ? "calendar" : "list") is read-only, so this item can't be changed here.")
                 .padding(.top, 8)
@@ -321,6 +326,12 @@ struct ItemDetailView: View {
 
     private func delete(includingFuture: Bool = false) {
         eventKit.delete(item, includingFuture: includingFuture)
+        onChange()
+        dismiss()
+    }
+
+    private func skip() {
+        eventKit.skipOccurrence(item)
         onChange()
         dismiss()
     }

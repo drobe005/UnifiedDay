@@ -240,7 +240,7 @@ struct AttentionWidget: Widget {
             AttentionWidgetView(entry: entry)
         }
         .configurationDisplayName("Needs Attention")
-        .description("Reminders that are overdue or due today.")
+        .description("Tasks that are overdue or due today.")
         .supportedFamilies([.systemSmall, .accessoryCircular])
     }
 }
@@ -266,7 +266,7 @@ struct AttentionWidgetView: View {
                             .widgetAccentable()
                     }
                 }
-                .accessibilityLabel("\(data.reminders.count) reminders due")
+                .accessibilityLabel("\(data.reminders.count) tasks due")
             } else {
                 small
             }
@@ -292,7 +292,7 @@ struct AttentionWidgetView: View {
                 Text("\(count)")
                     .font(.system(size: 40, weight: .semibold, design: .rounded))
                     .foregroundStyle(WC.text1)
-                Text(count == 1 ? "reminder" : "reminders")
+                Text(count == 1 ? "task" : "tasks")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(WC.text2)
             }
@@ -381,7 +381,7 @@ struct MonthWidgetView: View {
                 Spacer(minLength: 4)
                 VStack(alignment: .leading, spacing: 3) {
                     stat(data.events.count, "event", "events", WC.text2)
-                    stat(data.reminders.count, "reminder", "reminders", WC.text2)
+                    stat(data.reminders.count, "task", "tasks", WC.text2)
                     stat(data.overdue.count, "overdue", "overdue", data.overdue.isEmpty ? WC.text3 : WC.error)
                 }
             }

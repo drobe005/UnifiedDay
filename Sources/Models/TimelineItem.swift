@@ -57,6 +57,11 @@ struct TimelineItem: Identifiable, Hashable {
     /// calendarItemExternalIdentifier. Stays the same across devices, so notes link by it.
     let externalIdentifier: String
     var repeatOption = RepeatOption.never
+    /// Words for a repeat the app's choices can't name, like "Every 3 days".
+    var customRepeatLabel: String?
+    /// For a repeating reminder: the date it moves to when only this one is deleted.
+    /// Nil when the series ends here or uses a pattern the app can't follow.
+    var nextOccurrenceDate: Date?
     /// When the item was made. Lets undated reminders sort newest first.
     var createdDate: Date?
 
@@ -67,6 +72,16 @@ struct TimelineItem: Identifiable, Hashable {
     /// A repeating event, where deleting asks whether to remove later ones too.
     var isRepeatingEvent: Bool {
         kind == .event && (repeatOption != .never || isDetachedOccurrence)
+    }
+
+    /// A repeating reminder, where deleting asks whether to remove only this one.
+    var isRepeatingReminder: Bool {
+        kind == .reminder && repeatOption != .never
+    }
+
+    /// How often it repeats, in words.
+    var repeatLabel: String {
+        repeatOption == .custom ? (customRepeatLabel ?? repeatOption.label) : repeatOption.label
     }
 
     var isOverdue: Bool {

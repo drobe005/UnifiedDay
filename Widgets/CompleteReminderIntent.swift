@@ -5,8 +5,8 @@ import WidgetKit
 /// The check circle on a widget reminder row. Marks the reminder done in Apple
 /// Reminders, then WidgetKit reloads the widget so the row drops off.
 struct CompleteReminderIntent: AppIntent {
-    static let title: LocalizedStringResource = "Complete Reminder"
-    static let description = IntentDescription("Marks a reminder as done.")
+    static let title: LocalizedStringResource = "Complete Task"
+    static let description = IntentDescription("Marks a task as done.")
     static let isDiscoverable = false
 
     @Parameter(title: "Reminder ID")

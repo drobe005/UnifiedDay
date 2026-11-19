@@ -13,6 +13,9 @@ final class EventKitService {
     static let defaultListKey = "defaultReminderListID"
     static let alertsEnabledKey = "alertsEnabled"
     static let alertLeadMinutesKey = "alertLeadMinutes"
+    /// Which kinds alert while Alerts is on. Both start on.
+    static let eventAlertsKey = "eventAlertsEnabled"
+    static let taskAlertsKey = "taskAlertsEnabled"
     static let defaultAlertLeadMinutes = 10
 
     /// iOS keeps at most 64 pending alerts per app, so schedule only the soonest.
@@ -170,11 +173,20 @@ final class EventKitService {
             storeIdentifier: event.eventIdentifier ?? "",
             externalIdentifier: event.calendarItemExternalIdentifier ?? "",
             repeatOption: Self.repeatOption(for: event),
+            customRepeatLabel: event.recurrenceRules?.first.map { RepeatRules.describe($0) },
             isDetachedOccurrence: event.isDetached
         )
     }
 
     // MARK: - Repeats
+
+    /// Where a repeating reminder moves when only this one is deleted.
+    nonisolated private static func nextOccurrence(of reminder: EKReminder) -> Date? {
+        guard let rules = reminder.recurrenceRules, rules.count == 1, let rule = rules.first,
+              let due = reminder.dueDateComponents.flatMap({ Calendar.current.date(from: $0) })
+        else { return nil }
+        return RepeatRules.nextDate(after: due, rule: rule)
+    }
 
     nonisolated private static let weekdays: Set<EKWeekday> = [.monday, .tuesday, .wednesday, .thursday, .friday]
 
@@ -322,6 +334,8 @@ final class EventKitService {
             storeIdentifier: reminder.calendarItemIdentifier,
             externalIdentifier: reminder.calendarItemExternalIdentifier ?? "",
             repeatOption: repeatOption(for: reminder),
+            customRepeatLabel: reminder.recurrenceRules?.first.map { RepeatRules.describe($0) },
+            nextOccurrenceDate: nextOccurrence(of: reminder),
             createdDate: reminder.creationDate
         )
     }
@@ -367,7 +381,7 @@ final class EventKitService {
     @discardableResult
     func createReminderList(named title: String) -> Bool {
         guard let source = store.defaultCalendarForNewReminders()?.source else {
-            lastError = "Couldn't find a Reminders account to add the list to."
+            lastError = "Couldn't find an Apple Reminders account to add the list to."
             return false
         }
         let list = EKCalendar(for: .reminder, eventStore: store)
@@ -527,7 +541,12 @@ final class EventKitService {
         }
 
         let now = Date.now
-        let items = await fetchRemindersDue(before: end) + fetchEvents(start: now, end: end)
+        let defaults = UserDefaults.standard
+        let wantsEvents = defaults.object(forKey: Self.eventAlertsKey) as? Bool ?? true
+        let wantsTasks = defaults.object(forKey: Self.taskAlertsKey) as? Bool ?? true
+        var items: [TimelineItem] = []
+        if wantsTasks { items += await fetchRemindersDue(before: end) }
+        if wantsEvents { items += await fetchEvents(start: now, end: end) }
         guard !Task.isCancelled else { return }
 
         let upcoming = items
@@ -582,7 +601,7 @@ final class EventKitService {
         guard item.kind == .reminder,
               let reminder = store.calendarItem(withIdentifier: item.storeIdentifier) as? EKReminder
         else {
-            lastError = "That reminder no longer exists. It may have been deleted in Reminders."
+            lastError = "That task no longer exists. It may have been deleted in Apple Reminders."
             return
         }
         reminder.isCompleted = completed
@@ -705,7 +724,7 @@ final class EventKitService {
         repeatOption: RepeatOption? = nil
     ) -> Bool {
         guard let reminder = store.calendarItem(withIdentifier: item.storeIdentifier) as? EKReminder else {
-            lastError = "That reminder no longer exists. It may have been deleted in Reminders."
+            lastError = "That task no longer exists. It may have been deleted in Apple Reminders."
             return false
         }
         reminder.title = title
@@ -867,7 +886,7 @@ final class EventKitService {
                 lastUndo = item.isRepeatingEvent ? nil : UndoAction(change: .delete, item: item)
             case .reminder:
                 guard let reminder = store.calendarItem(withIdentifier: item.storeIdentifier) as? EKReminder else {
-                    lastError = "That reminder no longer exists. It may have been deleted in Reminders."
+                    lastError = "That task no longer exists. It may have been deleted in Apple Reminders."
                     return
                 }
                 try store.remove(reminder, commit: true)
@@ -880,6 +899,44 @@ final class EventKitService {
 
     // MARK: - Undo
 
+    /// Deletes only this occurrence of a repeating reminder by moving it to its next
+    /// date, the way Apple Reminders skips one. Shake or Undo moves it back.
+    @discardableResult
+    func skipOccurrence(_ item: TimelineItem) -> Bool {
+        guard item.kind == .reminder, let next = item.nextOccurrenceDate else {
+            lastError = "Couldn't skip that task. Try deleting the whole series instead."
+            return false
+        }
+        let shift = item.startDate.map { next.timeIntervalSince($0) } ?? 0
+        guard moveReminderDue(item, to: next, alarmShift: shift) else { return false }
+        lastUndo = UndoAction(change: .skip, item: item)
+        return true
+    }
+
+    /// Sets a reminder's due date and moves alerts set at a fixed time by the same amount.
+    /// Alerts set relative to the due date follow on their own.
+    @discardableResult
+    private func moveReminderDue(_ item: TimelineItem, to date: Date, alarmShift: TimeInterval) -> Bool {
+        guard let reminder = store.calendarItem(withIdentifier: item.storeIdentifier) as? EKReminder else {
+            lastError = "That task no longer exists. It may have been deleted in Apple Reminders."
+            return false
+        }
+        reminder.dueDateComponents = dueComponents(for: date, includeTime: item.hasDueTime)
+        if reminder.startDateComponents != nil {
+            reminder.startDateComponents = reminder.dueDateComponents
+        }
+        for alarm in reminder.alarms ?? [] {
+            if let fixed = alarm.absoluteDate { alarm.absoluteDate = fixed.addingTimeInterval(alarmShift) }
+        }
+        do {
+            try store.save(reminder, commit: true)
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
     /// Reverses `lastUndo`. A deleted item comes back as a new copy with the same
     /// title, date, list or calendar, notes, and repeat, so this returns the old
     /// and new versions for moving attached notes over. Nil otherwise.
@@ -891,6 +948,10 @@ final class EventKitService {
         switch action.change {
         case .completion(let completed):
             setReminderCompleted(item, completed: !completed)
+        case .skip:
+            if let due = item.startDate, let next = item.nextOccurrenceDate {
+                moveReminderDue(item, to: due, alarmShift: due.timeIntervalSince(next))
+            }
         case .reschedule:
             if item.kind == .event, let start = item.startDate {
                 updateEvent(item, title: item.title, start: start, end: item.endDate ?? start, isAllDay: item.isAllDay, notes: item.notes)
@@ -958,6 +1019,8 @@ struct UndoAction {
         case completion(Bool)
         case reschedule
         case delete
+        /// One occurrence of a repeating reminder, deleted by moving it to its next date.
+        case skip
     }
 
     let change: Change
@@ -969,7 +1032,7 @@ struct UndoAction {
         switch change {
         case .completion(let completed): completed ? "Undo Complete" : "Undo Mark Not Done"
         case .reschedule: "Undo Move"
-        case .delete: "Undo Delete"
+        case .delete, .skip: "Undo Delete"
         }
     }
 }

@@ -106,7 +106,7 @@ struct NotesListView: View {
                 Button("Delete", role: .destructive) { delete(note) }
                 Button("Cancel", role: .cancel) {}
             } message: { _ in
-                Text("Events and reminders it's attached to won't change.")
+                Text("Events and tasks it's attached to won't change.")
             }
             .alert("Delete this folder?", isPresented: isPresenting($folderToDelete), presenting: folderToDelete) { folder in
                 Button("Delete", role: .destructive) {
@@ -430,7 +430,7 @@ struct NoteRow: View {
                 }
                 if note.hasItemLinks {
                     Image(systemName: "paperclip")
-                        .accessibilityLabel("Attached to an event or reminder")
+                        .accessibilityLabel("Attached to an event or task")
                 }
             }
             .font(.caption)

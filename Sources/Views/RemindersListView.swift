@@ -61,7 +61,7 @@ struct RemindersListView: View {
                     reminderList
                 }
             }
-            .navigationTitle("Reminders")
+            .navigationTitle("Tasks")
             .searchable(text: $searchText, prompt: "Search titles and notes")
             .udMinimizedSearch()
             .toolbar { toolbar }
@@ -80,7 +80,7 @@ struct RemindersListView: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Delete List", role: .destructive) { deleteList(group) }
             } message: { _ in
-                Text("Every reminder in it is deleted too, including in Apple Reminders.")
+                Text("Every task in it is deleted too, including in Apple Reminders.")
             }
             .task { await load() }
             .refreshable { await load() }
@@ -99,7 +99,7 @@ struct RemindersListView: View {
                 Section {
                     if !isCollapsed(group) {
                         if group.items.isEmpty {
-                            UDEmptyListRow(text: "No reminders")
+                            UDEmptyListRow(text: "No tasks")
                         }
                         ForEach(group.items) { item in
                             // The heading already names the list, so rows skip it.
@@ -123,6 +123,22 @@ struct RemindersListView: View {
                     header(for: group)
                 }
             }
+            // Easy to find at the end of the lists. Also in the filter menu.
+            if hasLoaded && !isSearching {
+                Button {
+                    newListName = ""
+                    isNamingList = true
+                } label: {
+                    Label("New List", systemImage: "plus")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(UD.brand600)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 8)
+                .udPlainRow()
+            }
         }
         .listStyle(.plain)
         .listSectionSpacing(0)
@@ -132,7 +148,7 @@ struct RemindersListView: View {
             if !hasLoaded {
                 ProgressView()
             } else if grouped.isEmpty {
-                UDEmptyState(title: "No open reminders", message: "Tap + to add one.")
+                UDEmptyState(title: "No open tasks", message: "Tap + to add one.")
             } else if filtered.isEmpty {
                 if searchText.isEmpty {
                     UDEmptyState(
@@ -159,8 +175,8 @@ struct RemindersListView: View {
                 dotColor: group.color,
                 isCollapsed: collapsed,
                 isDisabled: isSearching,
-                showHint: "Shows this list's reminders",
-                hideHint: "Hides this list's reminders"
+                showHint: "Shows this list's tasks",
+                hideHint: "Hides this list's tasks"
             ) {
                 toggle(group)
             }

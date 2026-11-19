@@ -8,7 +8,10 @@ struct ComposerView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
-    enum DraftKind { case event, reminder, note }
+    enum DraftKind: Identifiable {
+        case event, reminder, note
+        var id: Self { self }
+    }
 
     @State private var kind: DraftKind
     @State private var title = ""
@@ -24,27 +27,49 @@ struct ComposerView: View {
     @Query(sort: \NoteFolder.name) private var folders: [NoteFolder]
     @AppStorage(NotesListView.folderKey) private var viewedFolderID = ""
     @FocusState private var titleFocused: Bool
+    /// The new note's text and formatting. Saved only when you tap Save.
+    @State private var draft = Note()
+    /// A taller writing box, for longer notes.
+    @State private var isExpanded = false
+    /// Making an event or task from this note.
+    @State private var creatingForNote: DraftKind?
 
     /// When set, the composer writes a note for this item and hides the type picker.
     private let attachedItem: TimelineItem?
+    /// When set, the composer makes an event or task for a note and hands it back.
+    private let onCreate: ((TimelineItem) -> Void)?
 
-    init(initialDate: Date = .now, initialKind: DraftKind = .reminder, attachingTo item: TimelineItem? = nil) {
+    init(
+        initialDate: Date = .now,
+        initialKind: DraftKind = .reminder,
+        attachingTo item: TimelineItem? = nil,
+        initialTitle: String = "",
+        onCreate: ((TimelineItem) -> Void)? = nil
+    ) {
         _date = State(initialValue: initialDate)
         _kind = State(initialValue: initialKind)
+        _title = State(initialValue: initialTitle)
         attachedItem = item
+        self.onCreate = onCreate
+    }
+
+    private var kindOptions: [(DraftKind, String)] {
+        onCreate == nil
+            ? [(.reminder, "Task"), (.event, "Event"), (.note, "Note")]
+            : [(.reminder, "Task"), (.event, "Event")]
     }
 
     private var navigationTitle: String {
         switch kind {
         case .event: "New Event"
-        case .reminder: "New Reminder"
+        case .reminder: "New Task"
         case .note: "New Note"
         }
     }
 
     private var canSave: Bool {
         let hasTitle = !title.trimmingCharacters(in: .whitespaces).isEmpty
-        return hasTitle || (kind == .note && !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        return hasTitle || (kind == .note && !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
     var body: some View {
@@ -53,7 +78,7 @@ struct ComposerView: View {
                 Section {
                     if attachedItem == nil {
                         UDTextTabs(
-                            options: [(.reminder, "Reminder"), (.event, "Event"), (.note, "Note")],
+                            options: kindOptions,
                             selection: $kind
                         )
                         .accessibilityElement(children: .contain)
@@ -79,10 +104,32 @@ struct ComposerView: View {
 
                 if kind == .note {
                     Section {
-                        TextField("Write something", text: $notes, axis: .vertical)
-                            .lineLimit(6...)
-                            .padding(.vertical, 8)
-                            .listRowSeparator(.hidden)
+                        if #available(iOS 26.0, *) {
+                            RichNoteEditor(note: draft, minHeight: isExpanded ? 520 : 240)
+                                .listRowSeparator(.hidden)
+                        } else {
+                            TextField("Write something", text: Binding { draft.text } set: { draft.text = $0 }, axis: .vertical)
+                                .lineLimit((isExpanded ? 20 : 8)...)
+                                .padding(.vertical, 8)
+                                .listRowSeparator(.hidden)
+                        }
+                    } header: {
+                        HStack {
+                            UDFormHeader(title: "Note")
+                            Spacer()
+                            Button {
+                                withAnimation(.snappy) { isExpanded.toggle() }
+                            } label: {
+                                Image(systemName: isExpanded
+                                    ? "arrow.down.right.and.arrow.up.left"
+                                    : "arrow.up.left.and.arrow.down.right")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(UD.brand600)
+                                    .frame(width: 44, height: 32, alignment: .trailing)
+                                    .contentShape(Rectangle())
+                            }
+                            .accessibilityLabel(isExpanded ? "Smaller writing box" : "Bigger writing box")
+                        }
                     } footer: {
                         UDSavedInAppNote()
                     }
@@ -107,7 +154,15 @@ struct ComposerView: View {
                                     }
                                 }
                         }
-                        Button("Attach Events or Reminders", systemImage: "plus") {
+                        Button("New Event for This Note", systemImage: "calendar.badge.plus") {
+                            creatingForNote = .event
+                        }
+                        .udLinkRow()
+                        Button("New Task for This Note", systemImage: "checkmark.circle.badge.plus") {
+                            creatingForNote = .reminder
+                        }
+                        .udLinkRow()
+                        Button("Attach Existing Events or Tasks", systemImage: "plus") {
                             showingItemPicker = true
                         }
                         .udLinkRow()
@@ -164,6 +219,12 @@ struct ComposerView: View {
                     attachments += items
                 }
             }
+            .sheet(item: $creatingForNote) { newKind in
+                ComposerView(initialKind: newKind, initialTitle: title) { item in
+                    attachments.append(item)
+                }
+                .environment(eventKit)
+            }
             .onAppear {
                 selectedCalendarID = eventKit.preferredEventCalendar()?.calendarIdentifier
                 selectedListID = eventKit.preferredReminderList()?.calendarIdentifier
@@ -208,7 +269,10 @@ struct ComposerView: View {
     private func save() {
         let trimmed = title.trimmingCharacters(in: .whitespaces)
         if kind == .note {
-            let note = Note(title: trimmed, text: notes)
+            let note = draft
+            note.title = trimmed
+            note.createdAt = .now
+            note.updatedAt = .now
             modelContext.insert(note)
             note.folder = folder
             note.attach([attachedItem].compactMap { $0 } + attachments, in: modelContext)
@@ -217,7 +281,7 @@ struct ComposerView: View {
             let calendar = eventKit.writableEventCalendars().first { $0.calendarIdentifier == selectedCalendarID }
             let start = includeTime ? date : Calendar.current.startOfDay(for: date)
             let end = Calendar.current.date(byAdding: .hour, value: 1, to: start) ?? start
-            eventKit.createEvent(
+            let created = eventKit.createEvent(
                 title: trimmed,
                 start: start,
                 end: end,
@@ -226,9 +290,10 @@ struct ComposerView: View {
                 notes: notes.isEmpty ? nil : notes,
                 repeatOption: repeatOption
             )
+            if let created { onCreate?(created) }
         } else {
             let list = eventKit.writableReminderLists().first { $0.calendarIdentifier == selectedListID }
-            eventKit.createReminder(
+            let created = eventKit.createReminder(
                 title: trimmed,
                 dueDate: date,
                 includeTime: includeTime,
@@ -236,6 +301,7 @@ struct ComposerView: View {
                 notes: notes.isEmpty ? nil : notes,
                 repeatOption: repeatOption
             )
+            if let created { onCreate?(created) }
         }
         dismiss()
     }
@@ -245,15 +311,37 @@ struct ComposerView: View {
 /// already repeats in a way made in Apple's apps.
 struct RepeatPicker: View {
     @Binding var selection: RepeatOption
+    /// Words for a repeat made in Apple's apps, like "Every 3 days". Shown in place of "Custom".
+    var customLabel: String?
+    @State private var keepsCustom = false
 
     var body: some View {
         Picker("Repeat", selection: $selection) {
             ForEach(RepeatOption.choices) { Text($0.label).tag($0) }
-            if selection == .custom {
-                Text(RepeatOption.custom.label).tag(RepeatOption.custom)
+            // Stays listed after picking another choice, so the original rule can be kept.
+            if selection == .custom || keepsCustom {
+                Text(customLabel ?? RepeatOption.custom.label).tag(RepeatOption.custom)
             }
         }
         .udPickerValue()
+        .onAppear { if selection == .custom { keepsCustom = true } }
+    }
+}
+
+/// The message under a delete prompt for a repeating item.
+enum RepeatDeleteCopy {
+    static func message(for item: TimelineItem) -> String {
+        if item.isRepeatingEvent {
+            return "This is a repeating event. It will also be removed from Apple Calendar."
+        }
+        if item.isRepeatingReminder {
+            guard let next = item.nextOccurrenceDate else {
+                return "It repeats \(item.repeatLabel.lowercased()). Deleting removes the whole series from Apple Reminders."
+            }
+            let day = next.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
+            return "It repeats \(item.repeatLabel.lowercased()). Deleting only this one moves it to \(day)."
+        }
+        return "It will also be removed from Apple \(item.kind == .reminder ? "Reminders" : "Calendar")."
     }
 }
 

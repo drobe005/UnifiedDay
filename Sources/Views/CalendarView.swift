@@ -260,7 +260,10 @@ struct CalendarView: View {
             guard let interval = calendar.dateInterval(of: mode == .week ? .weekOfYear : .month, for: selectedDay) else {
                 return nil
             }
-            return interval.start..<interval.end
+            // The current week or month lists from today on, so the list opens on today.
+            let today = calendar.startOfDay(for: .now)
+            let start = interval.contains(today) ? today : interval.start
+            return start..<interval.end
         case .custom:
             let start = calendar.startOfDay(for: customStart)
             // Capped at a year so a stray date can't load years of items.

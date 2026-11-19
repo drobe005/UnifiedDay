@@ -560,3 +560,30 @@ extension View {
         }
     }
 }
+
+/// A short message after a change, like "Task completed", with an Undo button.
+/// Nothing is lost if it's ignored; shaking the phone still offers the same undo.
+struct UDUndoBar: View {
+    let message: String
+    let onUndo: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(message)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(UD.bgScreen)
+                .lineLimit(2)
+            Spacer(minLength: 8)
+            Button("Undo", action: onUndo)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(UD.brand200)
+                .frame(minHeight: 44)
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 12)
+        .background(UD.textPrimary, in: RoundedRectangle(cornerRadius: UD.cardRadius))
+        .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isStaticText)
+    }
+}

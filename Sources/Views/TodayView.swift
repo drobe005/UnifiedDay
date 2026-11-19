@@ -9,6 +9,7 @@ struct TodayView: View {
     @State private var isLoading = false
     @State private var hasLoaded = false
     @State private var showingOnboarding = false
+    @State private var showingSymbolKey = false
     @State private var showingAttention = false
     @State private var searchText = ""
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -80,10 +81,6 @@ struct TodayView: View {
             .refreshable {
                 await load()
             }
-            .sheet(isPresented: $showingOnboarding) {
-                OnboardingView()
-                    .environment(eventKit)
-            }
             .sheet(isPresented: $showingAttention) {
                 NeedsAttentionView()
                     .environment(eventKit)
@@ -107,6 +104,17 @@ struct TodayView: View {
                     await runSearch()
                 }
             }
+        }
+        // Onboarding only shows without access, so access on close means it was
+        // just granted. The key to the timeline's marks opens next.
+        .sheet(isPresented: $showingOnboarding, onDismiss: {
+            if eventKit.accessGranted { showingSymbolKey = true }
+        }) {
+            OnboardingView()
+                .environment(eventKit)
+        }
+        .sheet(isPresented: $showingSymbolKey) {
+            SymbolKeyIntroView()
         }
     }
 
@@ -203,12 +211,12 @@ struct TodayView: View {
     private var summaryLine: some View {
         let events = items.filter { $0.kind == .event }.count
         let reminders = items.count - events
-        return Text("\(events) \(events == 1 ? "event" : "events") · \(reminders) \(reminders == 1 ? "reminder" : "reminders") left")
+        return Text("\(events) \(events == 1 ? "event" : "events") · \(reminders) \(reminders == 1 ? "task" : "tasks") left")
             .font(.subheadline)
             .foregroundStyle(UD.textTertiary)
             .textCase(nil)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityLabel("\(events) \(events == 1 ? "event" : "events"), \(reminders) \(reminders == 1 ? "reminder" : "reminders") left")
+            .accessibilityLabel("\(events) \(events == 1 ? "event" : "events"), \(reminders) \(reminders == 1 ? "task" : "tasks") left")
     }
 
     private var collapsedTitles: Set<String> {
@@ -241,7 +249,7 @@ struct TodayView: View {
     private var emptyState: some View {
         UDEmptyState(
             title: "Nothing on the books",
-            message: "No events or reminders today. Tap + to add one."
+            message: "No events or tasks today. Tap + to add one."
         )
         .frame(maxHeight: .infinity)
         .background(UD.bgScreen)
@@ -342,6 +350,7 @@ struct TimelineRow: View {
 
     private var deleteTitle: String {
         if item.isRepeatingEvent { return "Delete this repeating event?" }
+        if item.isRepeatingReminder { return "Delete this repeating task?" }
         return "Delete \"\(item.title)\"?"
     }
 
@@ -460,12 +469,17 @@ struct TimelineRow: View {
             if item.isRepeatingEvent {
                 Button("Delete This Event Only", role: .destructive) { delete() }
                 Button("Delete All Future Events", role: .destructive) { delete(includingFuture: true) }
+            } else if item.isRepeatingReminder {
+                if item.nextOccurrenceDate != nil {
+                    Button("Delete This Task Only", role: .destructive) { skip() }
+                }
+                Button("Delete All Future Tasks", role: .destructive) { delete() }
             } else {
                 Button("Delete", role: .destructive) { delete() }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("It will also be removed from Apple \(item.kind == .reminder ? "Reminders" : "Calendar").")
+            Text(RepeatDeleteCopy.message(for: item))
         }
         .sheet(isPresented: $showingDetail) {
             ItemDetailView(item: item, onChange: onChange)
@@ -517,7 +531,7 @@ struct TimelineRow: View {
             }
             if item.repeatOption != .never {
                 Image(systemName: "repeat")
-                    .accessibilityLabel("Repeats \(item.repeatOption.label.lowercased())")
+                    .accessibilityLabel("Repeats \(item.repeatLabel.lowercased())")
             }
             if hasNote {
                 Image(systemName: "note.text")
@@ -546,6 +560,14 @@ struct TimelineRow: View {
     private func delete(includingFuture: Bool = false) {
         onRemove(item, nil)
         eventKit.delete(item, includingFuture: includingFuture)
+        onChange()
+    }
+
+    /// Deletes only this occurrence of a repeating reminder by moving it to its next date.
+    private func skip() {
+        guard let next = item.nextOccurrenceDate else { return }
+        onRemove(item, .day(next))
+        eventKit.skipOccurrence(item)
         onChange()
     }
 
